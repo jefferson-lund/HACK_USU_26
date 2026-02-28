@@ -1,12 +1,11 @@
-import { useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
+import { ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
 
-import { Text, View } from '@/components/Themed';
-import { getActivityLogs, getFullDataset, getOutcomeRating, getSetup, initDatabase, logActivity, logOutcomeRating, populateDummyData } from '@/lib/database';
-import { generateDummyData, getRegressionAnalysis, generateInsightSummary } from '@/lib/analysis';
 import ImpactChart from '@/components/ImpactChart';
+import { Text, View } from '@/components/Themed';
+import { generateDummyData, generateInsightSummary, getRegressionAnalysis } from '@/lib/analysis';
+import { getActivityLogs, getFullDataset, getOutcomeRating, getSetup, initDatabase, logActivity, logOutcomeRating, populateDummyData } from '@/lib/database';
 
 export default function TrackScreen() {
   const [activities, setActivities] = useState<string[]>([]);
@@ -53,7 +52,12 @@ export default function TrackScreen() {
   };
 
   const handlePopulateDummyData = async () => {
-    const dummyData = generateDummyData(6);
+    const setup = await getSetup();
+    if (!setup || setup.activities.length === 0) {
+      alert('Please set up your activities first!');
+      return;
+    }
+    const dummyData = generateDummyData(6, setup.activities);
     await populateDummyData(dummyData);
     alert('Populated 6 months of dummy data!');
     loadData();
