@@ -57,7 +57,7 @@ export async function generateHypothesis(outcome: string, activities: string[]):
     )} will help me ${trimmedOutcome}.`;
 
   try {
-    console.log('[LLM] Calling backend /hypothesis…');
+    console.log('[LLM] Calling backend /api/hypothesis…');
 
     const baseUrl = getBaseUrl();
 
@@ -66,7 +66,7 @@ export async function generateHypothesis(outcome: string, activities: string[]):
       return fallback();
     }
 
-    const response = await fetch(`${baseUrl}/hypothesis`, {
+    const response = await fetch(`${baseUrl}/api/hypothesis`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
