@@ -4,11 +4,15 @@ let webStorage: {
   activities: string[];
   logs: Record<string, Record<string, boolean>>;
   ratings: Record<string, number>;
+  whoopToken: string | null;
+  whoopData: Record<string, any>;
 } = {
   outcome: '',
   activities: [],
   logs: {},
   ratings: {},
+  whoopToken: null,
+  whoopData: {},
 };
 
 export const initDatabase = async () => {
@@ -99,4 +103,50 @@ export const logOutcomeRating = async (rating: number, date: string) => {
 
 export const getOutcomeRating = async (date: string): Promise<number | null> => {
   return webStorage.ratings[date] || null;
+};
+
+
+export const saveWhoopToken = async (accessToken: string, refreshToken?: string) => {
+  webStorage.whoopToken = accessToken;
+};
+
+export const getWhoopToken = async (): Promise<string | null> => {
+  return webStorage.whoopToken;
+};
+
+export const saveWhoopData = async (data: Array<{
+  date: string;
+  strain?: number;
+  avgHeartRate?: number;
+  recoveryScore?: number;
+  hrv?: number;
+  restingHR?: number;
+  sleepPerformance?: number;
+  sleepDuration?: number;
+}>) => {
+  for (const entry of data) {
+    webStorage.whoopData[entry.date] = entry;
+  }
+};
+
+export const getWhoopData = async (startDate?: string, endDate?: string): Promise<Array<{
+  date: string;
+  strain?: number;
+  avgHeartRate?: number;
+  recoveryScore?: number;
+  hrv?: number;
+  restingHR?: number;
+  sleepPerformance?: number;
+  sleepDuration?: number;
+}>> => {
+  let results = Object.values(webStorage.whoopData);
+  
+  if (startDate) {
+    results = results.filter((d: any) => d.date >= startDate);
+  }
+  if (endDate) {
+    results = results.filter((d: any) => d.date <= endDate);
+  }
+  
+  return results.sort((a: any, b: any) => b.date.localeCompare(a.date));
 };

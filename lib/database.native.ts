@@ -42,6 +42,28 @@ export const initDatabase = async () => {
   `);
 };
 
+  db.execSync(`
+    CREATE TABLE IF NOT EXISTS whoop_token (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      access_token TEXT NOT NULL,
+      refresh_token TEXT,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  db.execSync(`
+    CREATE TABLE IF NOT EXISTS whoop_data (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      date TEXT NOT NULL UNIQUE,
+      strain REAL,
+      avg_heart_rate REAL,
+      recovery_score REAL,
+      hrv REAL,
+      resting_hr REAL,
+      sleep_performance REAL,
+      sleep_duration REAL
+    );
+  `);
 export const saveSetup = async (outcome: string, activities: string[]) => {
   if (!db) {
     db = SQLite.openDatabaseSync('tracker.db');
@@ -227,4 +249,98 @@ export const populateDummyData = async (data: Array<{ date: string; activities: 
       [entry.outcome, entry.date]
     );
   }
+};
+
+export const saveWhoopToken = async (accessToken: string, refreshToken?: string) => {
+  if (!db) {
+    db = SQLite.openDatabaseSync('tracker.db');
+  }
+  db.runSync(
+    'INSERT OR REPLACE INTO whoop_token (id, access_token, refresh_token, updated_at) VALUES (1, ?, ?, CURRENT_TIMESTAMP)',
+    [accessToken, refreshToken || null]
+  );
+};
+
+export const getWhoopToken = async (): Promise<string | null> => {
+  if (!db) {
+    db = SQLite.openDatabaseSync('tracker.db');
+  }
+  const result = db.getFirstSync<{ access_token: string }>('SELECT access_token FROM whoop_token WHERE id = 1');
+  return result?.access_token || null;
+};
+
+export const saveWhoopData = async (data: Array<{
+  date: string;
+  strain?: number;
+  avgHeartRate?: number;
+  recoveryScore?: number;
+  hrv?: number;
+  restingHR?: number;
+  sleepPerformance?: number;
+  sleepDuration?: number;
+}>) => {
+  if (!db) {
+    db = SQLite.openDatabaseSync('tracker.db');
+  }
+  
+  for (const entry of data) {
+    db.runSync(
+      `INSERT OR REPLACE INTO whoop_data 
+       (date, strain, avg_heart_rate, recovery_score, hrv, resting_hr, sleep_performance, sleep_duration) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        entry.date,
+        entry.strain || null,
+        entry.avgHeartRate || null,
+        entry.recoveryScore || null,
+        entry.hrv || null,
+        entry.restingHR || null,
+        entry.sleepPerformance || null,
+        entry.sleepDuration || null,
+      ]
+    );
+  }
+};
+
+export const getWhoopData = async (startDate?: string, endDate?: string): Promise<Array<{
+  date: string;
+  strain?: number;
+  avgHeartRate?: number;
+  recoveryScore?: number;
+  hrv?: number;
+  restingHR?: number;
+  sleepPerformance?: number;
+  sleepDuration?: number;
+}>> => {
+  if (!db) {
+    db = SQLite.openDatabaseSync('tracker.db');
+  }
+  
+  let query = 'SELECT * FROM whoop_data';
+  const params: any[] = [];
+  
+  if (startDate && endDate) {
+    query += ' WHERE date BETWEEN ? AND ?';
+    params.push(startDate, endDate);
+  } else if (startDate) {
+    query += ' WHERE date >= ?';
+    params.push(startDate);
+  } else if (endDate) {
+    query += ' WHERE date <= ?';
+    params.push(endDate);
+  }
+  
+  query += ' ORDER BY date DESC';
+  
+  const results = db.getAllSync(query, params);
+  return results.map((r: any) => ({
+    date: r.date,
+    strain: r.strain,
+    avgHeartRate: r.avg_heart_rate,
+    recoveryScore: r.recovery_score,
+    hrv: r.hrv,
+    restingHR: r.resting_hr,
+    sleepPerformance: r.sleep_performance,
+    sleepDuration: r.sleep_duration,
+  }));
 };
