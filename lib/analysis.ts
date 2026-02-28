@@ -19,9 +19,9 @@ export interface RegressionResult {
   actuals?: number[];
 }
 
-export const generateDummyData = (months: number = 6): CheckIn[] => {
+export const generateDummyData = (months: number = 6, userActivities: string[] = []): CheckIn[] => {
   const data: CheckIn[] = [];
-  const activities = ['Gym', 'Water', 'Meditation', 'Late Coffee', 'Sleep 8hrs'];
+  const activities = userActivities.length > 0 ? userActivities : ['Gym', 'Water', 'Meditation', 'Late Coffee', 'Sleep 8hrs'];
   const today = new Date();
   
   for (let i = months * 30; i >= 0; i--) {
@@ -29,20 +29,20 @@ export const generateDummyData = (months: number = 6): CheckIn[] => {
     date.setDate(date.getDate() - i);
     const dateStr = date.toISOString().split('T')[0];
     
-    // Generate activity data with some patterns
-    const gym = Math.random() > 0.6;
-    const water = Math.random() > 0.4;
-    const meditation = Math.random() > 0.7;
-    const lateCoffee = Math.random() > 0.65;
-    const sleep = Math.random() > 0.5;
+    // Generate activity data with random patterns
+    const activityRecord: Record<string, boolean> = {};
+    activities.forEach((activity) => {
+      activityRecord[activity] = Math.random() > 0.5;
+    });
     
     // Generate outcome with correlation to activities
     let outcome = 5;
-    if (gym) outcome += 1.5;
-    if (water) outcome += 0.8;
-    if (meditation) outcome += 1.2;
-    if (lateCoffee) outcome -= 0.9;
-    if (sleep) outcome += 1.0;
+    activities.forEach((activity) => {
+      if (activityRecord[activity]) {
+        // Random impact between -1 and +1.5
+        outcome += (Math.random() * 2.5) - 1;
+      }
+    });
     
     // Add noise
     outcome += (Math.random() - 0.5) * 2;
@@ -50,13 +50,7 @@ export const generateDummyData = (months: number = 6): CheckIn[] => {
     
     data.push({
       date: dateStr,
-      activities: {
-        'Gym': gym,
-        'Water': water,
-        'Meditation': meditation,
-        'Late Coffee': lateCoffee,
-        'Sleep 8hrs': sleep,
-      },
+      activities: activityRecord,
       outcome,
     });
   }

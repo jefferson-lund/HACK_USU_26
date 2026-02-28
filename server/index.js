@@ -61,7 +61,7 @@ app.post('/hypothesis', async (req, res) => {
               `Daily activities the user believes matter: ${filteredActivities
                 .map((a) => `"${a}"`)
                 .join(', ')}.`,
-              'Write one sentence that starts with "My working hypothesis is that" and clearly connects the activities to the outcome, in a neutral, non-judgmental tone.',
+              'Write one sentence that starts with "My working hypothesis is that" and clearly connects the activities to the outcome, in a neutral, non-judgmental tone. Make sure there is correct grammar and parallelism between the activities and the outcome. Make this sentence sound fluid and human-like.',
             ].join(' '),
           },
         ],

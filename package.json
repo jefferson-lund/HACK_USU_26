@@ -24,6 +24,7 @@
     "expo-symbols": "~1.0.8",
     "expo-web-browser": "~15.0.10",
     "express": "^5.0.1",
+    "fix": "^0.0.6",
     "ml-regression": "^6.3.0",
     "react": "19.1.0",
     "react-dom": "19.1.0",
