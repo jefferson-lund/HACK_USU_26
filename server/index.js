@@ -1,22 +1,55 @@
 // Simple backend proxy for OpenAI so the Expo app (web and native) never calls OpenAI directly.
 
-// Load environment variables
-require('dotenv').config();
+const path = require('path');
+
+// Load environment variables from project root
+require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 
 const express = require('express');
 const cors = require('cors');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const app = express();
 const port = process.env.PORT || 4000;
 
 // Prefer a server-side secret name, but fall back to the existing one if needed.
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || process.env.EXPO_PUBLIC_OPENAI_API_KEY;
-console.log('Key loaded:', !!OPENAI_API_KEY);
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || process.env.EXPO_PUBLIC_GEMINI_API_KEY;
+console.log('OpenAI key loaded:', !!OPENAI_API_KEY);
+console.log('Gemini key loaded:', !!GEMINI_API_KEY);
+console.log('Gemini key (EXPO_PUBLIC_GEMINI_API_KEY) present:', !!process.env.EXPO_PUBLIC_GEMINI_API_KEY);
 
-app.use(cors({ origin: '*', methods: ['POST'] }));
+app.use(cors({ origin: '*', methods: ['GET', 'POST', 'OPTIONS'], allowedHeaders: ['Content-Type'] }));
 app.use(express.json());
 
-app.post('/hypothesis', async (req, res) => {
+// Log all incoming requests for debugging
+app.use((req, res, next) => {
+  console.log('[backend] Incoming:', req.method, req.originalUrl);
+  next();
+});
+
+const apiRouter = express.Router();
+
+// Health check for debugging
+apiRouter.get('/health', (req, res) => {
+  res.json({ ok: true, message: 'API is reachable' });
+});
+
+// Explicit OPTIONS for CORS preflight
+apiRouter.options('/weekly-plan', (req, res) => res.sendStatus(204));
+apiRouter.options('/hypothesis', (req, res) => res.sendStatus(204));
+
+function extractJson(text) {
+  const cleaned = text
+    .trim()
+    .replace(/^```json/i, '')
+    .replace(/^```/, '')
+    .replace(/```$/, '')
+    .trim();
+  return JSON.parse(cleaned);
+}
+
+apiRouter.post('/hypothesis', async (req, res) => {
   try {
     const { outcome, activities } = req.body || {};
 
@@ -92,6 +125,164 @@ app.post('/hypothesis', async (req, res) => {
       usedFallback: true,
     });
   }
+});
+
+// POST /api/weekly-plan
+// Expects: { outcome_goal, current_average_outcome?, time_constraints?, preferences?, regression_summary: { r_squared, n_days, activities } }
+apiRouter.post('/weekly-plan', async (req, res) => {
+  console.log('[backend] POST /api/weekly-plan hit');
+  const body = req.body;
+
+  if (!GEMINI_API_KEY) {
+    return res.status(500).json({ error: 'Gemini API key not configured' });
+  }
+
+  if (
+    !body ||
+    !body.regression_summary ||
+    !Array.isArray(body.regression_summary.activities) ||
+    body.regression_summary.activities.length === 0
+  ) {
+    return res
+      .status(400)
+      .json({ error: 'regression_summary.activities is required' });
+  }
+
+  try {
+    const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+    // Use gemini-1.5-flash for stability; fallback to 2.0 if needed
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+
+    const systemInstructions = `
+You are a supportive, non-medical wellness coach.
+
+You will receive:
+- A user's wellness outcome goal (e.g. "increase daily energy").
+- Multiple linear regression results showing how daily activities correlate with that outcome.
+- Basic time constraints and preferences.
+
+Your task:
+- Create a realistic, safe, one-week plan (7 days) of daily activities that helps the user move toward their outcome.
+- Prioritize activities with the highest positive regression coefficients.
+- If any activities have strong negative coefficients, gently suggest reducing or replacing them.
+- Respect the user's time limits and preferences (e.g. dislike of high intensity, sleep window).
+- Limit to 2–3 key focus activities per day to avoid overwhelm.
+- Start the week lighter and, if reasonable, slightly increase consistency by the end of the week.
+- Do NOT provide medical advice, diet prescriptions, or anything that replaces professional care.
+
+Output format:
+- Return ONLY valid JSON with no comments, no Markdown, and no surrounding text.
+- It MUST strictly match this shape:
+
+{
+  "summary": string,
+  "rationale": string,
+  "guidelines": string[],
+  "days": [
+    {
+      "day_index": number,
+      "label": string,
+      "focus": string,
+      "activities": [
+        {
+          "id": string,
+          "name": string,
+          "time_of_day": "morning" | "afternoon" | "evening" | "any",
+          "duration_minutes"?: number,
+          "intensity"?: "low" | "medium" | "high",
+          "instructions": string,
+          "based_on_activity"?: string,
+          "reason"?: string
+        }
+      ]
+    }
+  ]
+}
+`.trim();
+
+    const userPayload = {
+      outcome_goal: body.outcome_goal,
+      current_average_outcome: body.current_average_outcome,
+      time_constraints: body.time_constraints,
+      preferences: body.preferences,
+      regression_summary: body.regression_summary,
+      task:
+        'Create an achievable 7-day plan prioritizing activities with the strongest positive coefficients while respecting constraints.',
+    };
+
+    const userMessage =
+      'Here is the user\'s data as JSON. Use it to generate the plan described in the instructions above:\n\n' +
+      JSON.stringify(userPayload, null, 2);
+
+    let result;
+    let text;
+    try {
+      result = await model.generateContent({
+        contents: [{ role: 'user', parts: [{ text: userMessage }] }],
+        systemInstruction: systemInstructions,
+      });
+      // text() can throw if response is blocked or has no candidates
+      text = (result?.response && typeof result.response.text === 'function')
+        ? result.response.text()
+        : '';
+    } catch (geminiErr) {
+      const msg = geminiErr?.message ?? String(geminiErr);
+      console.error('[backend] Gemini error:', msg);
+      console.error('[backend] Full error:', geminiErr);
+      return res.status(502).json({
+        error: 'Gemini API request failed',
+        details: msg,
+      });
+    }
+
+    if (!text || !text.trim()) {
+      console.error('[backend] Gemini returned empty response');
+      return res.status(502).json({
+        error: 'Gemini returned empty or blocked response',
+        details: 'The model may have blocked the output. Try again or simplify the input.',
+      });
+    }
+    let json;
+
+    try {
+      json = extractJson(text);
+    } catch (parseErr) {
+      console.error('[backend] Failed to parse Gemini JSON:', text);
+      return res.status(502).json({
+        error: 'Model returned non-JSON response',
+        raw: text,
+      });
+    }
+
+    if (!json.days || !Array.isArray(json.days) || json.days.length !== 7) {
+      return res.status(502).json({
+        error: 'Model response did not contain a 7-day plan',
+        raw: json,
+      });
+    }
+
+    if (!json.summary) json.summary = 'Your personalized weekly plan.';
+    if (!json.rationale) json.rationale = 'Based on your correlation analysis.';
+    if (!json.guidelines) json.guidelines = [];
+
+    return res.json(json);
+  } catch (err) {
+    const msg = err?.message ?? String(err);
+    console.error('[backend] Error generating weekly plan:', msg);
+    console.error('[backend] Stack:', err?.stack);
+    return res.status(500).json({
+      error: 'Failed to generate weekly plan',
+      details: msg,
+    });
+  }
+});
+
+app.use('/api', apiRouter);
+
+// Catch-all 404 handler for debugging
+app.use((req, res) => {
+  console.log('[backend] 404 - Requested URL:', req.method, req.originalUrl);
+  res.status(404).json({ error: 'Not found', path: req.originalUrl });
 });
 
 app.listen(port, '0.0.0.0', () => {
