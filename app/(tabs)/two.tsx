@@ -6,6 +6,7 @@ import { useCallback } from 'react';
 import { Text, View } from '@/components/Themed';
 import { getActivityLogs, getFullDataset, getOutcomeRating, getSetup, initDatabase, logActivity, logOutcomeRating, populateDummyData } from '@/lib/database';
 import { generateDummyData, getRegressionAnalysis, generateInsightSummary } from '@/lib/analysis';
+import { buildWeeklyPlanPayload, generateWeeklyPlan, type WeeklyPlan } from '@/lib/api/weeklyPlan';
 import ImpactChart from '@/components/ImpactChart';
 
 export default function TrackScreen() {
@@ -18,6 +19,10 @@ export default function TrackScreen() {
   const [dataPreview, setDataPreview] = useState<Array<{ date: string; activities: Record<string, boolean>; outcome: number }>>([]);
   const [regressionResults, setRegressionResults] = useState<any>(null);
   const [scatterData, setScatterData] = useState<Array<{ x: number; y: number; predicted: number; date: string }>>([]);
+  const [weeklyPlan, setWeeklyPlan] = useState<WeeklyPlan | null>(null);
+  const [planLoading, setPlanLoading] = useState(false);
+  const [planError, setPlanError] = useState<string | null>(null);
+  const [validDataForPlan, setValidDataForPlan] = useState<Array<{ date: string; activities: Record<string, boolean>; outcome: number }>>([]);
   const today = new Date().toISOString().split('T')[0];
 
   const loadData = useCallback(async () => {
@@ -76,6 +81,7 @@ export default function TrackScreen() {
     
     const results = getRegressionAnalysis(validData, false);
     setRegressionResults(results);
+    setValidDataForPlan(validData);
     
     // Prepare scatter plot data with dates
     if (results.predictions && results.actuals) {
@@ -90,6 +96,23 @@ export default function TrackScreen() {
     
     const summary = generateInsightSummary(results);
     setInsights(summary);
+    setWeeklyPlan(null);
+    setPlanError(null);
+  };
+
+  const handleGeneratePlan = async () => {
+    if (!regressionResults || !outcome || validDataForPlan.length === 0) return;
+    setPlanLoading(true);
+    setPlanError(null);
+    try {
+      const payload = buildWeeklyPlanPayload(outcome, regressionResults, validDataForPlan);
+      const plan = await generateWeeklyPlan(payload);
+      setWeeklyPlan(plan);
+    } catch (err) {
+      setPlanError(err instanceof Error ? err.message : 'Failed to generate plan');
+    } finally {
+      setPlanLoading(false);
+    }
   };
 
   if (activities.length === 0) {
@@ -160,6 +183,24 @@ export default function TrackScreen() {
             <TouchableOpacity style={styles.testButton} onPress={handleRunAnalysis}>
               <Text style={styles.testButtonText}>Run Correlation Analysis</Text>
             </TouchableOpacity>
+
+            {regressionResults && regressionResults.impacts.length > 0 && (
+              <TouchableOpacity
+                style={[styles.testButton, planLoading && styles.buttonDisabled]}
+                onPress={handleGeneratePlan}
+                disabled={planLoading}
+              >
+                <Text style={styles.testButtonText}>
+                  {planLoading ? 'Generating...' : 'Generate 1-Week Plan'}
+                </Text>
+              </TouchableOpacity>
+            )}
+
+            {planError && (
+              <View style={styles.errorBox}>
+                <Text style={styles.errorText}>{planError}</Text>
+              </View>
+            )}
             
             {insights && (
               <View style={styles.insightsBox}>
@@ -171,6 +212,41 @@ export default function TrackScreen() {
               <ImpactChart impacts={regressionResults.impacts} />
             )}
             
+            {weeklyPlan && (
+              <View style={styles.planContainer}>
+                <Text style={styles.planTitle}>Your 1-Week Plan</Text>
+                <Text style={styles.planSummary}>{weeklyPlan.summary}</Text>
+                {weeklyPlan.rationale ? (
+                  <Text style={styles.planRationale}>{weeklyPlan.rationale}</Text>
+                ) : null}
+                {weeklyPlan.guidelines && weeklyPlan.guidelines.length > 0 && (
+                  <View style={styles.guidelinesBox}>
+                    <Text style={styles.guidelinesTitle}>Guidelines</Text>
+                    {weeklyPlan.guidelines.map((g, i) => (
+                      <Text key={i} style={styles.guidelineItem}>• {g}</Text>
+                    ))}
+                  </View>
+                )}
+                {weeklyPlan.days.map((day) => (
+                  <View key={day.day_index} style={styles.dayCard}>
+                    <Text style={styles.dayLabel}>{day.label}</Text>
+                    <Text style={styles.dayFocus}>{day.focus}</Text>
+                    {day.activities.map((act) => (
+                      <View key={act.id} style={styles.activityItem}>
+                        <Text style={styles.activityName}>{act.name}</Text>
+                        {act.instructions ? (
+                          <Text style={styles.activityInstructions}>{act.instructions}</Text>
+                        ) : null}
+                        {act.reason ? (
+                          <Text style={styles.activityReason}>{act.reason}</Text>
+                        ) : null}
+                      </View>
+                    ))}
+                  </View>
+                ))}
+              </View>
+            )}
+
             {regressionResults && scatterData.length > 0 && (
               <View style={styles.visualContainer}>
                 <Text style={styles.tableTitle}>Predicted vs Actual Outcomes</Text>
@@ -383,6 +459,101 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontSize: 14,
     letterSpacing: 0.5,
+  },
+  buttonDisabled: {
+    opacity: 0.6,
+  },
+  errorBox: {
+    padding: 12,
+    borderRadius: 8,
+    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.3)',
+  },
+  errorText: {
+    color: '#dc2626',
+    fontSize: 14,
+  },
+  planContainer: {
+    marginTop: 16,
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.3)',
+    backgroundColor: 'rgba(236, 253, 245, 0.6)',
+    gap: 12,
+  },
+  planTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#065f46',
+  },
+  planSummary: {
+    fontSize: 14,
+    lineHeight: 22,
+    color: '#047857',
+  },
+  planRationale: {
+    fontSize: 13,
+    lineHeight: 20,
+    color: '#059669',
+    opacity: 0.9,
+  },
+  guidelinesBox: {
+    padding: 12,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.7)',
+    gap: 4,
+  },
+  guidelinesTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#065f46',
+    marginBottom: 4,
+  },
+  guidelineItem: {
+    fontSize: 13,
+    lineHeight: 20,
+    color: '#047857',
+  },
+  dayCard: {
+    padding: 12,
+    borderRadius: 10,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.2)',
+    gap: 8,
+  },
+  dayLabel: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#065f46',
+  },
+  dayFocus: {
+    fontSize: 13,
+    color: '#059669',
+    fontStyle: 'italic',
+  },
+  activityItem: {
+    paddingLeft: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: 'rgba(16, 185, 129, 0.4)',
+    gap: 4,
+  },
+  activityName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#334155',
+  },
+  activityInstructions: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#64748b',
+  },
+  activityReason: {
+    fontSize: 12,
+    color: '#94a3b8',
+    fontStyle: 'italic',
   },
   insightsBox: {
     marginTop: 12,
