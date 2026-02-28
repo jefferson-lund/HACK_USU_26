@@ -3,15 +3,19 @@ import Constants from 'expo-constants';
 
 function getBaseUrl(): string | null {
   // 1. Explicit override via env (works for web and native)
-  const fromEnv = process.env.EXPO_PUBLIC_API_BASE_URL;
+  const fromEnv =
+    typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_API_BASE_URL?.trim();
   if (fromEnv) {
     return fromEnv;
   }
 
-  // 2. Web: derive from current origin (assumes backend on same host, port 4000)
+  // 2. Web: always try backend on port 4000 when running on localhost
   if (Platform.OS === 'web' && typeof window !== 'undefined') {
-    const { protocol, hostname } = window.location;
-    return `${protocol}//${hostname}:4000`;
+    const { hostname } = window.location;
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      return 'http://localhost:4000';
+    }
+    return `http://${hostname}:4000`;
   }
 
   // 3. Native (Expo Go / dev build): use Expo hostUri and swap to port 4000
@@ -38,7 +42,12 @@ function getBaseUrl(): string | null {
   return null;
 }
 
-export async function generateHypothesis(outcome: string, activities: string[]): Promise<string> {
+export type HypothesisResult = { hypothesis: string; usedFallback: boolean };
+
+export async function generateHypothesis(
+  outcome: string,
+  activities: string[],
+): Promise<HypothesisResult> {
   const trimmedOutcome = outcome.trim();
   const filteredActivities = activities.map((a) => a.trim()).filter(Boolean);
 
@@ -46,31 +55,26 @@ export async function generateHypothesis(outcome: string, activities: string[]):
     throw new Error('Outcome and at least one activity are required to generate a hypothesis.');
   }
 
-  console.log('[LLM] generateHypothesis', {
-    outcome: trimmedOutcome,
-    activities: filteredActivities,
-  });
-
-  const fallback = () =>
+  const fallbackText = () =>
     `My working hypothesis is that regularly ${filteredActivities.join(
       ', ',
     )} will help me ${trimmedOutcome}.`;
 
+  const baseUrl = getBaseUrl();
+  console.log('[LLM] Base URL:', baseUrl ?? '(none)');
+
+  if (!baseUrl) {
+    console.warn('[LLM] No backend base URL. Start the server with: npm run server');
+    return { hypothesis: fallbackText(), usedFallback: true };
+  }
+
   try {
-    console.log('[LLM] Calling backend /api/hypothesis…');
+    const url = `${baseUrl}/hypothesis`;
+    console.log('[LLM] Calling backend:', url);
 
-    const baseUrl = getBaseUrl();
-
-    if (!baseUrl) {
-      console.warn('[LLM] No backend base URL resolved. Falling back to local hypothesis template.');
-      return fallback();
-    }
-
-    const response = await fetch(`${baseUrl}/api/hypothesis`, {
+    const response = await fetch(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         outcome: trimmedOutcome,
         activities: filteredActivities,
@@ -78,7 +82,9 @@ export async function generateHypothesis(outcome: string, activities: string[]):
     });
 
     if (!response.ok) {
-      throw new Error(`Backend API error: ${response.status}`);
+      const body = await response.text();
+      console.warn('[LLM] Backend error', response.status, body);
+      return { hypothesis: fallbackText(), usedFallback: true };
     }
 
     const data = (await response.json()) as {
@@ -88,16 +94,14 @@ export async function generateHypothesis(outcome: string, activities: string[]):
 
     const content = data.hypothesis?.trim();
     if (!content) {
-      throw new Error('No hypothesis returned from backend.');
+      console.warn('[LLM] No hypothesis in response');
+      return { hypothesis: fallbackText(), usedFallback: true };
     }
 
-    console.log('[LLM] Hypothesis received from backend.', {
-      usedFallback: data.usedFallback,
-    });
-
-    return content;
+    console.log('[LLM] OK, usedFallback:', data.usedFallback);
+    return { hypothesis: content, usedFallback: data.usedFallback === true };
   } catch (error) {
-    console.warn('Failed to generate hypothesis via OpenAI, using fallback.', error);
-    return fallback();
+    console.warn('[LLM] Request failed (is the server running?).', error);
+    return { hypothesis: fallbackText(), usedFallback: true };
   }
 }
