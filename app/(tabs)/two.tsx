@@ -6,11 +6,7 @@ import { useCallback } from 'react';
 import { Text, View } from '@/components/Themed';
 import { getActivityLogs, getFullDataset, getOutcomeRating, getSetup, initDatabase, logActivity, logOutcomeRating, populateDummyData } from '@/lib/database';
 import { generateDummyData, getRegressionAnalysis, generateInsightSummary } from '@/lib/analysis';
-<<<<<<< HEAD
-import { getWhoopCycles, getWhoopRecovery, getWhoopSleep, formatWhoopDataForAnalysis, getWhoopAuthUrl, exchangeCodeForToken } from '@/lib/whoop';
-=======
 import { buildWeeklyPlanPayload, generateWeeklyPlan, type WeeklyPlan } from '@/lib/api/weeklyPlan';
->>>>>>> b8130f29ff40d2fab9a218d0d8b30600e3229527
 import ImpactChart from '@/components/ImpactChart';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
@@ -25,16 +21,10 @@ export default function TrackScreen() {
   const [dataPreview, setDataPreview] = useState<Array<{ date: string; activities: Record<string, boolean>; outcome: number }>>([]);
   const [regressionResults, setRegressionResults] = useState<any>(null);
   const [scatterData, setScatterData] = useState<Array<{ x: number; y: number; predicted: number; date: string }>>([]);
-<<<<<<< HEAD
-  const [whoopData, setWhoopData] = useState<any[]>([]);
-  const [whoopToken, setWhoopToken] = useState<string>('');
-  const [isLoadingWhoop, setIsLoadingWhoop] = useState(false);
-=======
   const [weeklyPlan, setWeeklyPlan] = useState<WeeklyPlan | null>(null);
   const [planLoading, setPlanLoading] = useState(false);
   const [planError, setPlanError] = useState<string | null>(null);
   const [validDataForPlan, setValidDataForPlan] = useState<Array<{ date: string; activities: Record<string, boolean>; outcome: number }>>([]);
->>>>>>> b8130f29ff40d2fab9a218d0d8b30600e3229527
   const today = new Date().toISOString().split('T')[0];
 
   const loadData = useCallback(async () => {
@@ -605,27 +595,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     letterSpacing: 0.5,
   },
-<<<<<<< HEAD
-  testButtonDisabled: {
-    opacity: 0.5,
-  },
-  whoopSection: {
-    gap: 12,
-    padding: 12,
-    borderRadius: 10,
-    backgroundColor: 'rgba(139, 92, 246, 0.05)',
-    borderWidth: 1,
-    borderColor: 'rgba(139, 92, 246, 0.2)',
-  },
-  input: {
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(150,150,150,0.5)',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
-    backgroundColor: '#fff',
-=======
   buttonDisabled: {
     opacity: 0.6,
   },
@@ -720,7 +689,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#94a3b8',
     fontStyle: 'italic',
->>>>>>> b8130f29ff40d2fab9a218d0d8b30600e3229527
   },
   insightsBox: {
     marginTop: 12,
