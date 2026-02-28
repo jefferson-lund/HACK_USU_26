@@ -1,0 +1,89 @@
+# Wellness Tracker - Requirements
+
+## Project Overview
+A React Native wellness tracking app built with Expo that allows users to track daily activities and analyze their correlation with wellness outcomes using multiple linear regression.
+
+## Core Dependencies
+
+### Framework & Runtime
+- expo: ~54.0.0
+- react: 19.1.0
+- react-native: 0.81.5
+- react-dom: 19.1.0
+- react-native-web: ~0.21.0
+
+### Navigation & Routing
+- expo-router: ~6.0.23
+- @react-navigation/native: ^7.1.28
+- react-native-screens: ~4.16.0
+- react-native-safe-area-context: ~5.6.2
+
+### Data Storage
+- expo-sqlite: ^55.0.10 (Local SQLite database for iOS/Android)
+
+### Data Analysis
+- ml-regression: ^6.3.0 (Multiple linear regression and correlation analysis)
+
+### Visualization
+- react-native-chart-kit: ^6.12.0 (Charts and graphs)
+- react-native-svg: ^15.15.3 (SVG rendering for charts)
+
+### UI & Animation
+- expo-symbols: ~1.0.8 (Icon system)
+- react-native-reanimated: ~4.1.1 (Animations)
+- react-native-worklets: 0.5.1 (Animation worklets)
+
+### Expo Modules
+- expo-constants: ~18.0.13
+- expo-font: ~14.0.11
+- expo-linking: ~8.0.11
+- expo-splash-screen: ~31.0.13
+- expo-status-bar: ~3.0.9
+- expo-web-browser: ~15.0.10
+
+### Server (Optional)
+- express: ^5.0.1 (Backend server)
+- cors: ^2.8.5 (CORS middleware)
+- dotenv: ^16.4.5 (Environment variables)
+
+## Development Dependencies
+- typescript: ~5.9.2
+- @types/react: ~19.1.10
+
+## Installation
+
+```bash
+npm install
+```
+
+## Platform Support
+- iOS (via Expo Go or development build)
+- Android (via Expo Go or development build)
+- Web (with in-memory storage fallback)
+
+## Key Features
+1. Daily activity tracking with checkboxes
+2. Outcome rating (1-10 scale)
+3. SQLite persistence (native) / in-memory storage (web)
+4. Multiple linear regression analysis
+5. Correlation coefficient visualization (heatmap)
+6. Scatter plot (predicted vs actual outcomes)
+7. Dummy data generation for testing
+8. R² calculation for model fit
+
+## Metro Bundler Configuration
+Custom metro.config.js required for:
+- Resolving is-any-array package (ml-regression dependency)
+- Supporting .mjs file extensions
+
+## Database Schema
+- setup: User's wellness goal/outcome
+- activities: List of tracked activities
+- activity_logs: Daily activity completion (boolean)
+- outcome_ratings: Daily outcome ratings (1-10)
+
+## Notes
+- Web platform uses in-memory storage (data not persisted on refresh)
+- Native platforms use SQLite for persistent storage
+- Minimum 10 data points recommended for regression analysis
+- Activities with |coefficient| < 0.1 filtered from visualizations
