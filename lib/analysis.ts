@@ -232,11 +232,15 @@ export const generateInsightSummary = (results: RegressionResult): string => {
     } else {
       return `${impact.activity} is currently neutral (coeff: ${coeff.toFixed(2)})`;
     }
-  });
+  }).filter(Boolean);
+  
+  if (insights.length === 0) {
+    return 'No significant activity impacts detected';
+  }
   
   const method = results.method === 'multiple-regression' 
     ? `Multiple Linear Regression (R² = ${results.r2.toFixed(2)})` 
     : 'Pearson Correlation';
   
-  return `Analysis (${method}, n=${results.sampleSize}):\n${insights.join(', ')}. `;
+  return `Analysis (${method}, n=${results.sampleSize}):\n${insights.join(', ')}`;
 };

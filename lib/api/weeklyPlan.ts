@@ -25,6 +25,7 @@ export interface WeeklyPlan {
 
 function getApiBase(): string {
   const base = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:4000';
+  console.log('[weeklyPlan] API Base from env:', base);
   return base.replace(/\/$/, ''); // Remove trailing slash
 }
 
@@ -83,17 +84,24 @@ export function buildWeeklyPlanPayload(
 export async function generateWeeklyPlan(payload: Record<string, unknown>): Promise<WeeklyPlan> {
   const url = `${getApiBase()}/api/weekly-plan`;
   console.log('[weeklyPlan] Fetching:', url);
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
+  console.log('[weeklyPlan] Payload:', JSON.stringify(payload).substring(0, 200));
+  
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
 
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({ error: response.statusText }));
-    const message = err.details || err.error || `Failed to generate plan: ${response.status}`;
-    throw new Error(message);
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({ error: response.statusText }));
+      const message = err.details || err.error || `Failed to generate plan: ${response.status}`;
+      throw new Error(message);
+    }
+
+    return response.json();
+  } catch (error) {
+    console.error('[weeklyPlan] Fetch failed:', error);
+    throw error;
   }
-
-  return response.json();
 }

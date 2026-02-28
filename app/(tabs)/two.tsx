@@ -1,19 +1,15 @@
-import { useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, TouchableOpacity, TextInput } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import { useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { ScrollView, StyleSheet, TextInput, TouchableOpacity } from 'react-native';
 
 import { Text, View } from '@/components/Themed';
+import { generateDummyData, generateInsightSummary, getRegressionAnalysis } from '@/lib/analysis';
 import { getActivityLogs, getFullDataset, getOutcomeRating, getSetup, initDatabase, logActivity, logOutcomeRating, populateDummyData } from '@/lib/database';
-import { generateDummyData, getRegressionAnalysis, generateInsightSummary } from '@/lib/analysis';
-<<<<<<< HEAD
-import { getWhoopCycles, getWhoopRecovery, getWhoopSleep, formatWhoopDataForAnalysis, getWhoopAuthUrl, exchangeCodeForToken } from '@/lib/whoop';
-=======
+import { exchangeCodeForToken, formatWhoopDataForAnalysis, getWhoopAuthUrl, getWhoopCycles, getWhoopRecovery, getWhoopSleep } from '@/lib/whoop';
 import { buildWeeklyPlanPayload, generateWeeklyPlan, type WeeklyPlan } from '@/lib/api/weeklyPlan';
->>>>>>> b8130f29ff40d2fab9a218d0d8b30600e3229527
 import ImpactChart from '@/components/ImpactChart';
-import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
+import * as WebBrowser from 'expo-web-browser';
 
 export default function TrackScreen() {
   const [activities, setActivities] = useState<string[]>([]);
@@ -22,19 +18,40 @@ export default function TrackScreen() {
   const [rating, setRating] = useState<number | null>(null);
   const [showAnalytics, setShowAnalytics] = useState(false);
   const [insights, setInsights] = useState('');
+  
+  // Safety wrapper to prevent rendering invalid text nodes
+  const safeSetInsights = (value: string) => {
+    const cleaned = value?.trim();
+    if (!cleaned || cleaned === '.' || cleaned.length === 0) {
+      setInsights('');
+    } else {
+      setInsights(cleaned);
+    }
+  };
   const [dataPreview, setDataPreview] = useState<Array<{ date: string; activities: Record<string, boolean>; outcome: number }>>([]);
   const [regressionResults, setRegressionResults] = useState<any>(null);
   const [scatterData, setScatterData] = useState<Array<{ x: number; y: number; predicted: number; date: string }>>([]);
-<<<<<<< HEAD
   const [whoopData, setWhoopData] = useState<any[]>([]);
   const [whoopToken, setWhoopToken] = useState<string>('');
   const [isLoadingWhoop, setIsLoadingWhoop] = useState(false);
-=======
   const [weeklyPlan, setWeeklyPlan] = useState<WeeklyPlan | null>(null);
   const [planLoading, setPlanLoading] = useState(false);
   const [planError, setPlanError] = useState<string | null>(null);
+  
+  // Safety wrapper to prevent rendering invalid text nodes
+  const safeSetPlanError = (value: string | null) => {
+    if (!value) {
+      setPlanError(null);
+      return;
+    }
+    const cleaned = value.trim();
+    if (!cleaned || cleaned === '.' || cleaned.length < 2) {
+      setPlanError('An error occurred');
+    } else {
+      setPlanError(cleaned);
+    }
+  };
   const [validDataForPlan, setValidDataForPlan] = useState<Array<{ date: string; activities: Record<string, boolean>; outcome: number }>>([]);
->>>>>>> b8130f29ff40d2fab9a218d0d8b30600e3229527
   const today = new Date().toISOString().split('T')[0];
 
   const loadData = useCallback(async () => {
@@ -89,6 +106,11 @@ export default function TrackScreen() {
   const handleRatingSelect = async (value: number) => {
     setRating(value);
     await logOutcomeRating(value, today);
+    
+    // Auto-refresh plan if one exists
+    if (weeklyPlan && regressionResults) {
+      setTimeout(() => handleGeneratePlan(), 1000);
+    }
   };
 
   const handlePopulateDummyData = async () => {
@@ -170,21 +192,24 @@ export default function TrackScreen() {
     }
     
     const summary = generateInsightSummary(results);
-    setInsights(summary);
+    console.log('[Track] Setting insights:', JSON.stringify(summary.substring(0, 100)));
+    safeSetInsights(summary);
     setWeeklyPlan(null);
-    setPlanError(null);
+    safeSetPlanError(null);
   };
 
   const handleGeneratePlan = async () => {
     if (!regressionResults || !outcome || validDataForPlan.length === 0) return;
     setPlanLoading(true);
-    setPlanError(null);
+    safeSetPlanError(null);
     try {
       const payload = buildWeeklyPlanPayload(outcome, regressionResults, validDataForPlan);
       const plan = await generateWeeklyPlan(payload);
       setWeeklyPlan(plan);
     } catch (err) {
-      setPlanError(err instanceof Error ? err.message : 'Failed to generate plan');
+      console.error('[weeklyPlan] Error:', err);
+      const errorMsg = err instanceof Error ? err.message : 'Failed to generate plan';
+      safeSetPlanError(errorMsg);
     } finally {
       setPlanLoading(false);
     }
@@ -303,13 +328,13 @@ export default function TrackScreen() {
               </TouchableOpacity>
             )}
 
-            {planError && (
+            {planError && planError.trim() && planError.trim() !== '.' && (
               <View style={styles.errorBox}>
                 <Text style={styles.errorText}>{planError}</Text>
               </View>
             )}
             
-            {insights && (
+            {insights && insights.trim() && insights.trim() !== '.' && (
               <View style={styles.insightsBox}>
                 <Text style={styles.insightsText}>{insights}</Text>
               </View>
@@ -319,10 +344,10 @@ export default function TrackScreen() {
               <ImpactChart impacts={regressionResults.impacts} />
             )}
             
-            {weeklyPlan && (
+            {weeklyPlan && weeklyPlan.days && (
               <View style={styles.planContainer}>
                 <Text style={styles.planTitle}>Your 1-Week Plan</Text>
-                <Text style={styles.planSummary}>{weeklyPlan.summary}</Text>
+                <Text style={styles.planSummary}>{weeklyPlan.summary || ''}</Text>
                 {weeklyPlan.rationale ? (
                   <Text style={styles.planRationale}>{weeklyPlan.rationale}</Text>
                 ) : null}
@@ -336,11 +361,11 @@ export default function TrackScreen() {
                 )}
                 {weeklyPlan.days.map((day) => (
                   <View key={day.day_index} style={styles.dayCard}>
-                    <Text style={styles.dayLabel}>{day.label}</Text>
-                    <Text style={styles.dayFocus}>{day.focus}</Text>
-                    {day.activities.map((act) => (
+                    <Text style={styles.dayLabel}>{day.label || ''}</Text>
+                    <Text style={styles.dayFocus}>{day.focus || ''}</Text>
+                    {day.activities && day.activities.map((act) => (
                       <View key={act.id} style={styles.activityItem}>
-                        <Text style={styles.activityName}>{act.name}</Text>
+                        <Text style={styles.activityName}>{act.name || ''}</Text>
                         {act.instructions ? (
                           <Text style={styles.activityInstructions}>{act.instructions}</Text>
                         ) : null}
@@ -353,6 +378,7 @@ export default function TrackScreen() {
                 ))}
               </View>
             )}
+
 
             {regressionResults && scatterData.length > 0 && (
               <View style={styles.visualContainer}>
@@ -605,27 +631,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     letterSpacing: 0.5,
   },
-<<<<<<< HEAD
-  testButtonDisabled: {
-    opacity: 0.5,
-  },
-  whoopSection: {
-    gap: 12,
-    padding: 12,
-    borderRadius: 10,
-    backgroundColor: 'rgba(139, 92, 246, 0.05)',
-    borderWidth: 1,
-    borderColor: 'rgba(139, 92, 246, 0.2)',
-  },
-  input: {
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(150,150,150,0.5)',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
-    backgroundColor: '#fff',
-=======
   buttonDisabled: {
     opacity: 0.6,
   },
@@ -720,7 +725,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#94a3b8',
     fontStyle: 'italic',
->>>>>>> b8130f29ff40d2fab9a218d0d8b30600e3229527
   },
   insightsBox: {
     marginTop: 12,

@@ -133,8 +133,8 @@ apiRouter.post('/weekly-plan', async (req, res) => {
   console.log('[backend] POST /api/weekly-plan hit');
   const body = req.body;
 
-  if (!GEMINI_API_KEY) {
-    return res.status(500).json({ error: 'Gemini API key not configured' });
+  if (!OPENAI_API_KEY) {
+    return res.status(500).json({ error: 'OpenAI API key not configured' });
   }
 
   if (
@@ -149,130 +149,76 @@ apiRouter.post('/weekly-plan', async (req, res) => {
   }
 
   try {
-    const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-    // Use gemini-1.5-flash for stability; fallback to 2.0 if needed
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const prompt = `You are a wellness coach. Create a 7-day activity plan.
 
-    const systemInstructions = `
-You are a supportive, non-medical wellness coach.
+Goal: ${body.outcome_goal}
+Current average outcome: ${body.current_average_outcome || 'unknown'}
 
-You will receive:
-- A user's wellness outcome goal (e.g. "increase daily energy").
-- Multiple linear regression results showing how daily activities correlate with that outcome.
-- Basic time constraints and preferences.
+Activities and their impact (coefficient):
+${body.regression_summary.activities.map(a => `- ${a.name}: ${a.coefficient > 0 ? '+' : ''}${a.coefficient.toFixed(2)}`).join('\n')}
 
-Your task:
-- Create a realistic, safe, one-week plan (7 days) of daily activities that helps the user move toward their outcome.
-- Prioritize activities with the highest positive regression coefficients.
-- If any activities have strong negative coefficients, gently suggest reducing or replacing them.
-- Respect the user's time limits and preferences (e.g. dislike of high intensity, sleep window).
-- Limit to 2–3 key focus activities per day to avoid overwhelm.
-- Start the week lighter and, if reasonable, slightly increase consistency by the end of the week.
-- Do NOT provide medical advice, diet prescriptions, or anything that replaces professional care.
+Model quality: R² = ${body.regression_summary.r_squared.toFixed(2)}, ${body.regression_summary.n_days} days of data
 
-Output format:
-- Return ONLY valid JSON with no comments, no Markdown, and no surrounding text.
-- It MUST strictly match this shape:
-
+Create a JSON response with this structure:
 {
-  "summary": string,
-  "rationale": string,
-  "guidelines": string[],
+  "summary": "Brief 1-sentence overview",
+  "rationale": "Why this plan works based on the data",
+  "guidelines": ["guideline 1", "guideline 2"],
   "days": [
     {
-      "day_index": number,
-      "label": string,
-      "focus": string,
+      "day_index": 0,
+      "label": "Monday",
+      "focus": "Brief focus for the day",
       "activities": [
         {
-          "id": string,
-          "name": string,
-          "time_of_day": "morning" | "afternoon" | "evening" | "any",
-          "duration_minutes"?: number,
-          "intensity"?: "low" | "medium" | "high",
-          "instructions": string,
-          "based_on_activity"?: string,
-          "reason"?: string
+          "id": "act1",
+          "name": "Activity name",
+          "time_of_day": "morning",
+          "instructions": "How to do it",
+          "reason": "Why it helps"
         }
       ]
     }
   ]
 }
-`.trim();
 
-    const userPayload = {
-      outcome_goal: body.outcome_goal,
-      current_average_outcome: body.current_average_outcome,
-      time_constraints: body.time_constraints,
-      preferences: body.preferences,
-      regression_summary: body.regression_summary,
-      task:
-        'Create an achievable 7-day plan prioritizing activities with the strongest positive coefficients while respecting constraints.',
-    };
+Focus on activities with positive coefficients. Keep it simple and actionable.`;
 
-    const userMessage =
-      'Here is the user\'s data as JSON. Use it to generate the plan described in the instructions above:\n\n' +
-      JSON.stringify(userPayload, null, 2);
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${OPENAI_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: 'gpt-3.5-turbo',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.7,
+        max_tokens: 2000
+      })
+    });
 
-    let result;
-    let text;
-    try {
-      result = await model.generateContent({
-        contents: [{ role: 'user', parts: [{ text: userMessage }] }],
-        systemInstruction: systemInstructions,
-      });
-      // text() can throw if response is blocked or has no candidates
-      text = (result?.response && typeof result.response.text === 'function')
-        ? result.response.text()
-        : '';
-    } catch (geminiErr) {
-      const msg = geminiErr?.message ?? String(geminiErr);
-      console.error('[backend] Gemini error:', msg);
-      console.error('[backend] Full error:', geminiErr);
-      return res.status(502).json({
-        error: 'Gemini API request failed',
-        details: msg,
-      });
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`OpenAI API error: ${error}`);
     }
 
-    if (!text || !text.trim()) {
-      console.error('[backend] Gemini returned empty response');
-      return res.status(502).json({
-        error: 'Gemini returned empty or blocked response',
-        details: 'The model may have blocked the output. Try again or simplify the input.',
-      });
+    const data = await response.json();
+    const content = data.choices[0].message.content;
+    
+    // Parse JSON from response
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new Error('No JSON found in response');
     }
-    let json;
-
-    try {
-      json = extractJson(text);
-    } catch (parseErr) {
-      console.error('[backend] Failed to parse Gemini JSON:', text);
-      return res.status(502).json({
-        error: 'Model returned non-JSON response',
-        raw: text,
-      });
-    }
-
-    if (!json.days || !Array.isArray(json.days) || json.days.length !== 7) {
-      return res.status(502).json({
-        error: 'Model response did not contain a 7-day plan',
-        raw: json,
-      });
-    }
-
-    if (!json.summary) json.summary = 'Your personalized weekly plan.';
-    if (!json.rationale) json.rationale = 'Based on your correlation analysis.';
-    if (!json.guidelines) json.guidelines = [];
-
-    return res.json(json);
+    
+    const plan = JSON.parse(jsonMatch[0]);
+    res.json(plan);
   } catch (err) {
-    const msg = err?.message ?? String(err);
-    console.error('[backend] Error generating weekly plan:', msg);
-    console.error('[backend] Stack:', err?.stack);
-    return res.status(500).json({
-      error: 'Failed to generate weekly plan',
-      details: msg,
+    console.error('[backend] /api/weekly-plan error:', err);
+    res.status(502).json({ 
+      error: err.message || 'Failed to generate plan',
+      details: err.toString()
     });
   }
 });
