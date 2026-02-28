@@ -1,12 +1,15 @@
 import { useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
+import { ScrollView, StyleSheet, TouchableOpacity, TextInput } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback } from 'react';
 
 import { Text, View } from '@/components/Themed';
 import { getActivityLogs, getFullDataset, getOutcomeRating, getSetup, initDatabase, logActivity, logOutcomeRating, populateDummyData } from '@/lib/database';
 import { generateDummyData, getRegressionAnalysis, generateInsightSummary } from '@/lib/analysis';
+import { getWhoopCycles, getWhoopRecovery, getWhoopSleep, formatWhoopDataForAnalysis, getWhoopAuthUrl, exchangeCodeForToken } from '@/lib/whoop';
 import ImpactChart from '@/components/ImpactChart';
+import * as WebBrowser from 'expo-web-browser';
+import * as Linking from 'expo-linking';
 
 export default function TrackScreen() {
   const [activities, setActivities] = useState<string[]>([]);
@@ -18,6 +21,9 @@ export default function TrackScreen() {
   const [dataPreview, setDataPreview] = useState<Array<{ date: string; activities: Record<string, boolean>; outcome: number }>>([]);
   const [regressionResults, setRegressionResults] = useState<any>(null);
   const [scatterData, setScatterData] = useState<Array<{ x: number; y: number; predicted: number; date: string }>>([]);
+  const [whoopData, setWhoopData] = useState<any[]>([]);
+  const [whoopToken, setWhoopToken] = useState<string>('');
+  const [isLoadingWhoop, setIsLoadingWhoop] = useState(false);
   const today = new Date().toISOString().split('T')[0];
 
   const loadData = useCallback(async () => {
@@ -41,6 +47,28 @@ export default function TrackScreen() {
     }, [loadData])
   );
 
+  useEffect(() => {
+    // Handle OAuth redirect
+    const handleDeepLink = async (event: { url: string }) => {
+      const { queryParams } = Linking.parse(event.url);
+      if (queryParams?.code) {
+        try {
+          const { access_token } = await exchangeCodeForToken(queryParams.code as string);
+          setWhoopToken(access_token);
+          alert('Successfully connected to Whoop!');
+          // Automatically fetch data
+          await handleFetchWhoopDataWithToken(access_token);
+        } catch (error) {
+          console.error('OAuth error:', error);
+          alert('Failed to connect to Whoop');
+        }
+      }
+    };
+
+    const subscription = Linking.addEventListener('url', handleDeepLink);
+    return () => subscription.remove();
+  }, []);
+
   const toggleActivity = async (activity: string) => {
     const newValue = !completed[activity];
     setCompleted(prev => ({ ...prev, [activity]: newValue }));
@@ -57,6 +85,47 @@ export default function TrackScreen() {
     await populateDummyData(dummyData);
     alert('Populated 6 months of dummy data!');
     loadData();
+  };
+
+  const handleConnectWhoop = async () => {
+    try {
+      const authUrl = getWhoopAuthUrl();
+      await WebBrowser.openAuthSessionAsync(authUrl);
+    } catch (error) {
+      console.error('Error opening Whoop auth:', error);
+      alert('Failed to open Whoop authorization');
+    }
+  };
+
+  const handleFetchWhoopDataWithToken = async (token: string) => {
+    setIsLoadingWhoop(true);
+    try {
+      const endDate = new Date().toISOString();
+      const startDate = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString();
+
+      const [cycles, recoveries, sleeps] = await Promise.all([
+        getWhoopCycles(token, startDate, endDate),
+        getWhoopRecovery(token, startDate, endDate),
+        getWhoopSleep(token, startDate, endDate),
+      ]);
+
+      const formattedData = formatWhoopDataForAnalysis(cycles, recoveries, sleeps);
+      setWhoopData(formattedData);
+      alert(`Fetched ${formattedData.length} days of Whoop data!`);
+    } catch (error) {
+      console.error('Error fetching Whoop data:', error);
+      alert('Failed to fetch Whoop data.');
+    } finally {
+      setIsLoadingWhoop(false);
+    }
+  };
+
+  const handleFetchWhoopData = async () => {
+    if (!whoopToken) {
+      alert('Please connect to Whoop first');
+      return;
+    }
+    await handleFetchWhoopDataWithToken(whoopToken);
   };
 
   const handleRunAnalysis = async () => {
@@ -156,6 +225,38 @@ export default function TrackScreen() {
             <TouchableOpacity style={styles.testButton} onPress={handlePopulateDummyData}>
               <Text style={styles.testButtonText}>Generate 6 Months Dummy Data</Text>
             </TouchableOpacity>
+            
+            <View style={styles.whoopSection}>
+              <Text style={styles.sectionTitle}>Whoop Integration</Text>
+              
+              <TextInput
+                style={styles.input}
+                placeholder="Or paste access token here"
+                placeholderTextColor="#999"
+                value={whoopToken}
+                onChangeText={setWhoopToken}
+                secureTextEntry
+              />
+              
+              <TouchableOpacity 
+                style={styles.testButton} 
+                onPress={handleConnectWhoop}
+              >
+                <Text style={styles.testButtonText}>Connect via OAuth</Text>
+              </TouchableOpacity>
+              
+              {whoopToken && (
+                <TouchableOpacity 
+                  style={[styles.testButton, isLoadingWhoop && styles.testButtonDisabled]} 
+                  onPress={handleFetchWhoopData}
+                  disabled={isLoadingWhoop}
+                >
+                  <Text style={styles.testButtonText}>
+                    {isLoadingWhoop ? 'Fetching...' : 'Fetch Whoop Data'}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
             
             <TouchableOpacity style={styles.testButton} onPress={handleRunAnalysis}>
               <Text style={styles.testButtonText}>Run Correlation Analysis</Text>
@@ -264,6 +365,44 @@ export default function TrackScreen() {
           </View>
         )}
       </View>
+      
+      {whoopData.length > 0 && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Whoop Data</Text>
+          <ScrollView horizontal>
+            <View style={styles.table}>
+              <View style={styles.tableRow}>
+                <Text style={[styles.tableCell, styles.tableHeader, styles.dateCell]}>Date</Text>
+                <Text style={[styles.tableCell, styles.tableHeader, styles.activityCell]}>Strain</Text>
+                <Text style={[styles.tableCell, styles.tableHeader, styles.activityCell]}>Recovery</Text>
+                <Text style={[styles.tableCell, styles.tableHeader, styles.activityCell]}>HRV</Text>
+                <Text style={[styles.tableCell, styles.tableHeader, styles.activityCell]}>Sleep (hrs)</Text>
+                <Text style={[styles.tableCell, styles.tableHeader, styles.activityCell]}>Sleep %</Text>
+              </View>
+              {whoopData.slice(0, 10).map((row, i) => (
+                <View key={i} style={styles.tableRow}>
+                  <Text style={[styles.tableCell, styles.dateCell]}>{row.date}</Text>
+                  <Text style={[styles.tableCell, styles.activityCell]}>
+                    {row.strain?.toFixed(1) || '-'}
+                  </Text>
+                  <Text style={[styles.tableCell, styles.activityCell]}>
+                    {row.recoveryScore || '-'}
+                  </Text>
+                  <Text style={[styles.tableCell, styles.activityCell]}>
+                    {row.hrv?.toFixed(0) || '-'}
+                  </Text>
+                  <Text style={[styles.tableCell, styles.activityCell]}>
+                    {row.sleepDuration?.toFixed(1) || '-'}
+                  </Text>
+                  <Text style={[styles.tableCell, styles.activityCell]}>
+                    {row.sleepPerformance || '-'}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          </ScrollView>
+        </View>
+      )}
     </ScrollView>
   );
 }
@@ -383,6 +522,26 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontSize: 14,
     letterSpacing: 0.5,
+  },
+  testButtonDisabled: {
+    opacity: 0.5,
+  },
+  whoopSection: {
+    gap: 12,
+    padding: 12,
+    borderRadius: 10,
+    backgroundColor: 'rgba(139, 92, 246, 0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(139, 92, 246, 0.2)',
+  },
+  input: {
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(150,150,150,0.5)',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    backgroundColor: '#fff',
   },
   insightsBox: {
     marginTop: 12,
