@@ -1,4 +1,4 @@
-# HACK_USU_26 - Hypothesis Generation App
+# HACK_USU_26 - Scientific Habit-Tracking App
 
 A React Native/Expo mobile application that helps users define and refine working hypotheses about how daily activities affect wellness outcomes using AI.
 
