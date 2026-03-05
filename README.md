@@ -4,11 +4,11 @@
 
 A cross-platform mobile application that transforms wellness tracking from passive data collection into active experimentation. Built for Hack USU 2026.
 
-## 🎯 The Problem
+## The Problem
 
 Wellness apps collect data, but they don't help you understand *why* you feel the way you do. Users are left drowning in metrics without actionable insights about what actually moves the needle on their health.
 
-## 💡 The Solution
+## The Solution
 
 **Hypothesis** helps users become scientists of their own lives by:
 1. **Defining clear outcomes** - What do you want to improve? (energy, sleep, focus)
@@ -16,7 +16,7 @@ Wellness apps collect data, but they don't help you understand *why* you feel th
 3. **Generating testable hypotheses** - AI creates clear, neutral hypotheses connecting your activities to outcomes
 4. **Tracking experiments** - Monitor your hypothesis over time with integrated wellness data
 
-## 🚀 Key Features
+## Key Features
 
 ### AI-Powered Hypothesis Generation
 - Uses OpenAI GPT-4o-mini and Google Gemini to generate scientifically-structured hypotheses
@@ -38,7 +38,7 @@ Wellness apps collect data, but they don't help you understand *why* you feel th
 - No user data stored on external servers
 - Local-first data storage
 
-## 🛠️ Technical Architecture
+## Technical Architecture
 
 ### Frontend Stack
 - **Expo 54.0** - Cross-platform development framework
@@ -59,7 +59,7 @@ Wellness apps collect data, but they don't help you understand *why* you feel th
 - Gitignored `.env` files with example templates
 - Clean git history with no exposed secrets
 
-## 📱 User Flow
+## User Flow
 
 1. **Setup Screen** - User enters desired wellness outcome
 2. **Activity Input** - Add daily activities that might influence the outcome
@@ -67,7 +67,7 @@ Wellness apps collect data, but they don't help you understand *why* you feel th
 4. **Tracking Dashboard** - Monitor hypothesis over time with integrated data
 5. **Analysis** - Review correlations between activities and outcomes
 
-## 🏗️ Project Structure
+## Project Structure
 
 ```
 app/
@@ -90,7 +90,7 @@ server/
 └── index.js               # Express backend with API proxying
 ```
 
-## 🚦 Getting Started
+## Getting Started
 
 ### Prerequisites
 - Node.js v18+
@@ -132,7 +132,7 @@ npm run android  # Android device/emulator
 npm run ios      # iOS device/simulator
 ```
 
-## 🎨 Design Decisions
+## Design Decisions
 
 ### Why Expo?
 - Rapid cross-platform development
@@ -152,7 +152,7 @@ npm run ios      # iOS device/simulator
 - Quality comparison between models
 - Flexibility for future model upgrades
 
-## 🔮 Future Enhancements
+## Future Enhancements
 
 - [ ] User authentication and cloud sync
 - [ ] Data visualization with charts and trends
@@ -163,24 +163,16 @@ npm run ios      # iOS device/simulator
 - [ ] Export data to CSV/PDF
 - [ ] Push notifications for tracking reminders
 
-## 🤝 Contributing
+## Contributing
 
 This project was built for Hack USU 2026. Contributions welcome!
 
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
 3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
 
-## 📄 License
+## License
 
-MIT License - feel free to use this project for learning or building your own wellness tools.
-
-## 👨‍💻 Author
-
-Built by Jefferson Lund for Hack USU 2026
+Built by Jefferson, Cooper, and Cader for Hack USU 2026
 
 ---
-
-*Made with ☕ and curiosity about what makes us tick*
