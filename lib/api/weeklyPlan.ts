@@ -25,7 +25,6 @@ export interface WeeklyPlan {
 
 function getApiBase(): string {
   const base = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:4000';
-  console.log('[weeklyPlan] API Base from env:', base);
   return base.replace(/\/$/, ''); // Remove trailing slash
 }
 
@@ -83,9 +82,7 @@ export function buildWeeklyPlanPayload(
  */
 export async function generateWeeklyPlan(payload: Record<string, unknown>): Promise<WeeklyPlan> {
   const url = `${getApiBase()}/api/weekly-plan`;
-  console.log('[weeklyPlan] Fetching:', url);
-  console.log('[weeklyPlan] Payload:', JSON.stringify(payload).substring(0, 200));
-  
+
   try {
     const response = await fetch(url, {
       method: 'POST',

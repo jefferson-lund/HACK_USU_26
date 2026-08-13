@@ -61,7 +61,6 @@ export async function generateHypothesis(
     )} will help me ${trimmedOutcome}.`;
 
   const baseUrl = getBaseUrl();
-  console.log('[LLM] Base URL:', baseUrl ?? '(none)');
 
   if (!baseUrl) {
     console.warn('[LLM] No backend base URL. Start the server with: npm run server');
@@ -70,7 +69,6 @@ export async function generateHypothesis(
 
   try {
     const url = `${baseUrl}/hypothesis`;
-    console.log('[LLM] Calling backend:', url);
 
     const response = await fetch(url, {
       method: 'POST',
@@ -98,7 +96,6 @@ export async function generateHypothesis(
       return { hypothesis: fallbackText(), usedFallback: true };
     }
 
-    console.log('[LLM] OK, usedFallback:', data.usedFallback);
     return { hypothesis: content, usedFallback: data.usedFallback === true };
   } catch (error) {
     console.warn('[LLM] Request failed (is the server running?).', error);
