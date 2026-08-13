@@ -32,20 +32,32 @@ app/                    # Expo Router app directory (file-based routing)
 ├── (tabs)/            # Tab-based navigation group
 │   ├── _layout.tsx    # Tab layout with bottom tab bar
 │   ├── index.tsx      # Main "Today Setup" screen
-│   └── two.tsx        # Secondary tab (placeholder)
+│   └── track.tsx      # "Track" tab — the largest, most feature-dense
+│                      # screen in the app: daily activity/outcome
+│                      # tracking, WHOOP integration, regression-based
+│                      # analytics, and the AI-generated weekly plan
 ├── modal.tsx          # Modal screen
 └── +not-found.tsx     # 404 fallback
 
 components/            # Reusable UI components
 ├── Themed.tsx         # Theme-aware components
 ├── useColorScheme.ts  # Dark/light mode detection
+├── track/             # Subcomponents extracted from track.tsx
+│   ├── WhoopPanel.tsx     # WHOOP token/OAuth controls + data table
+│   ├── ScatterChart.tsx   # Predicted vs. actual outcomes scatter plot
+│   ├── WeeklyPlanCard.tsx # Renders the generated 1-week plan
+│   └── DataTable.tsx      # Recent check-in data sample table
 └── ...
 
 constants/             # App constants
-└── Colors.ts          # Theme color definitions
+└── Colors.ts          # Theme color definitions (generic light/dark theme)
+                       # plus the `Brand` palette used by index.tsx/track.tsx
 
 lib/                   # Utility libraries
-└── llm.ts            # LLM integration and API communication
+├── llm.ts             # LLM integration and API communication
+├── whoop.ts           # WHOOP API integration
+├── analysis.ts        # Regression/correlation analysis for track.tsx
+└── database.native.ts / database.web.ts  # Storage backends (SQLite / in-memory)
 
 server/                # Express backend
 └── index.js          # OpenAI proxy server (port 4000)

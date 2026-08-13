@@ -73,13 +73,19 @@ Wellness apps collect data, but they don't help you understand *why* you feel th
 app/
 ├── (tabs)/
 │   ├── index.tsx          # Main hypothesis setup screen
-│   └── two.tsx            # Tracking dashboard
+│   └── track.tsx          # Tracking dashboard: daily check-ins, WHOOP
+│                          # integration, regression analysis & weekly plan
 ├── _layout.tsx            # Root layout with theme provider
 └── modal.tsx              # Modal screens
 
 components/
 ├── Themed.tsx             # Theme-aware UI components
-└── useColorScheme.ts      # Dark/light mode detection
+├── useColorScheme.ts      # Dark/light mode detection
+└── track/                 # Subcomponents that make up track.tsx
+    ├── WhoopPanel.tsx     # WHOOP token/OAuth controls + data table
+    ├── ScatterChart.tsx   # Predicted vs. actual outcomes scatter plot
+    ├── WeeklyPlanCard.tsx # Renders the generated 1-week plan
+    └── DataTable.tsx      # Recent check-in data sample table
 
 lib/
 ├── llm.ts                 # AI integration and API communication
