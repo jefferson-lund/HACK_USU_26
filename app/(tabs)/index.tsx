@@ -13,6 +13,7 @@ import { Text, View } from '@/components/Themed';
 import { getSetup, initDatabase, saveSetup } from '@/lib/database';
 import { generateHypothesis } from '@/lib/llm';
 import LaserDinosaur from '@/components/LaserDinosaur';
+import { Brand } from '@/constants/Colors';
 
 const HYPOTHESIS_DEBOUNCE_MS = 600;
 
@@ -139,7 +140,7 @@ export default function TodaySetupScreen() {
           <View style={styles.hypothesisBox}>
             {hypothesisLoading ? (
               <View style={styles.hypothesisLoading}>
-                <ActivityIndicator size="small" color="#4a90e2" />
+                <ActivityIndicator size="small" color={Brand.blue} />
                 <Text style={styles.hypothesisLoadingText}>Generating…</Text>
               </View>
             ) : (
@@ -200,7 +201,7 @@ export default function TodaySetupScreen() {
             value={outcome}
             onChangeText={setOutcome}
             placeholder="I want to…"
-            placeholderTextColor="#999"
+            placeholderTextColor={Brand.inkFaint}
             style={styles.input}
           />
         </View>
@@ -213,7 +214,7 @@ export default function TodaySetupScreen() {
               value={newActivity}
               onChangeText={setNewActivity}
               placeholder="e.g. morning walk, no caffeine after 2pm"
-              placeholderTextColor="#999"
+              placeholderTextColor={Brand.inkFaint}
               style={[styles.input, styles.inputFlex]}
               onSubmitEditing={handleAddActivity}
               onKeyPress={(e) => {
@@ -253,7 +254,7 @@ export default function TodaySetupScreen() {
             <View style={styles.hypothesisBox}>
               {hypothesisLoading ? (
                 <View style={styles.hypothesisLoading}>
-                  <ActivityIndicator size="small" color="#4a90e2" />
+                  <ActivityIndicator size="small" color={Brand.blue} />
                   <Text style={styles.hypothesisLoadingText}>Generating…</Text>
                 </View>
               ) : (
@@ -281,7 +282,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 32,
     paddingVertical: 48,
     gap: 40,
-    backgroundColor: '#ffffff',
+    backgroundColor: Brand.white,
     alignItems: 'center',
     maxWidth: 600,
     width: '100%',
@@ -290,7 +291,7 @@ const styles = StyleSheet.create({
   brandTitle: {
     fontSize: 48,
     fontWeight: '700',
-    color: '#f55e61',
+    color: Brand.orange,
     letterSpacing: -1,
     marginBottom: -8,
   },
@@ -298,13 +299,13 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: '700',
     textAlign: 'center',
-    color: '#1a1a1a',
+    color: Brand.ink,
     letterSpacing: -0.5,
   },
   subtitle: {
     fontSize: 16,
     textAlign: 'center',
-    color: '#666666',
+    color: Brand.inkSoft,
     lineHeight: 24,
     paddingHorizontal: 16,
   },
@@ -315,18 +316,18 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 20,
     fontWeight: '600',
-    color: '#1a1a1a',
+    color: Brand.ink,
     textAlign: 'center',
   },
   input: {
     borderRadius: 12,
     borderWidth: 2,
-    borderColor: '#e8e8e8',
+    borderColor: Brand.inputBorder,
     paddingHorizontal: 16,
     paddingVertical: 14,
     fontSize: 16,
-    backgroundColor: '#fafafa',
-    color: '#1a1a1a',
+    backgroundColor: Brand.inputBackground,
+    color: Brand.ink,
   },
   inputFlex: {
     flex: 1,
@@ -340,17 +341,17 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: '#f55e61',
+    backgroundColor: Brand.orange,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#f55e61',
+    shadowColor: Brand.orange,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 4,
     elevation: 3,
   },
   addButtonText: {
-    color: '#ffffff',
+    color: Brand.white,
     fontWeight: '700',
     fontSize: 24,
   },
@@ -367,16 +368,16 @@ const styles = StyleSheet.create({
     paddingRight: 8,
     paddingVertical: 10,
     borderRadius: 20,
-    backgroundColor: '#f8f8f8',
+    backgroundColor: Brand.chipBackground,
     borderWidth: 1,
-    borderColor: '#e0e0e0',
+    borderColor: Brand.chipBorder,
     gap: 6,
     maxWidth: '100%',
   },
   chipText: {
     fontSize: 14,
     flexShrink: 1,
-    color: '#1a1a1a',
+    color: Brand.ink,
     fontWeight: '500',
   },
   chipRemove: {
@@ -390,16 +391,16 @@ const styles = StyleSheet.create({
   chipRemoveText: {
     fontSize: 18,
     lineHeight: 20,
-    color: '#999',
+    color: Brand.inkFaint,
     fontWeight: '400',
   },
   hypothesisBox: {
     padding: 24,
     borderRadius: 16,
-    backgroundColor: '#f7faff',
+    backgroundColor: Brand.blueTint,
     borderWidth: 2,
-    borderColor: '#4a90e2',
-    shadowColor: '#4a90e2',
+    borderColor: Brand.blue,
+    shadowColor: Brand.blue,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
@@ -408,7 +409,7 @@ const styles = StyleSheet.create({
   hypothesisText: {
     fontSize: 17,
     lineHeight: 26,
-    color: '#1a1a1a',
+    color: Brand.ink,
     fontWeight: '500',
     textAlign: 'center',
   },
@@ -420,12 +421,12 @@ const styles = StyleSheet.create({
   },
   hypothesisLoadingText: {
     fontSize: 16,
-    color: '#666666',
+    color: Brand.inkSoft,
   },
   aiLabel: {
     fontSize: 12,
     textAlign: 'center',
-    color: '#4a90e2',
+    color: Brand.blue,
     fontWeight: '600',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
@@ -433,7 +434,7 @@ const styles = StyleSheet.create({
   fallbackLabel: {
     fontSize: 12,
     textAlign: 'center',
-    color: '#999999',
+    color: Brand.inkFaint,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
@@ -442,16 +443,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 32,
     paddingVertical: 16,
     borderRadius: 12,
-    backgroundColor: '#4a90e2',
+    backgroundColor: Brand.blue,
     alignSelf: 'center',
-    shadowColor: '#4a90e2',
+    shadowColor: Brand.blue,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 4,
   },
   saveButtonText: {
-    color: '#ffffff',
+    color: Brand.white,
     fontWeight: '700',
     fontSize: 16,
     letterSpacing: 0.3,
@@ -461,11 +462,11 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 12,
     borderWidth: 2,
-    borderColor: '#f55e61',
+    borderColor: Brand.orange,
     alignSelf: 'center',
   },
   editButtonText: {
-    color: '#f55e61',
+    color: Brand.orange,
     fontWeight: '600',
     fontSize: 16,
   },
