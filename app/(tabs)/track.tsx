@@ -1,15 +1,20 @@
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, TextInput, TouchableOpacity } from 'react-native';
+import { ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
 
 import { Text, View } from '@/components/Themed';
 import { generateDummyData, generateInsightSummary, getRegressionAnalysis, enrichDataWithWhoop } from '@/lib/analysis';
-import { getActivityLogs, getFullDataset, getOutcomeRating, getSetup, initDatabase, logActivity, logOutcomeRating, populateDummyData, saveWhoopToken, getWhoopToken, saveWhoopData, getWhoopData } from '@/lib/database';
+import { clearSyntheticData, getActivityLogs, getFullDataset, getOutcomeRating, getSetup, initDatabase, logActivity, logOutcomeRating, populateDummyData, saveWhoopToken, getWhoopToken, saveWhoopData, getWhoopData } from '@/lib/database';
 import { exchangeCodeForToken, formatWhoopDataForAnalysis, getWhoopAuthUrl, getWhoopCycles, getWhoopRecovery, getWhoopSleep } from '@/lib/whoop';
 import { buildWeeklyPlanPayload, generateWeeklyPlan, type WeeklyPlan } from '@/lib/api/weeklyPlan';
 import ImpactChart from '@/components/ImpactChart';
 import BeakerIcon from '@/components/BeakerIcon';
 import LaserDinosaur from '@/components/LaserDinosaur';
+import WhoopPanel, { WhoopDataTable } from '@/components/track/WhoopPanel';
+import ScatterChart from '@/components/track/ScatterChart';
+import WeeklyPlanCard from '@/components/track/WeeklyPlanCard';
+import DataTable from '@/components/track/DataTable';
+import { Brand } from '@/constants/Colors';
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 
@@ -22,7 +27,7 @@ export default function TrackScreen() {
   const [insights, setInsights] = useState('');
   const [tapCount, setTapCount] = useState(0);
   const [showDinos, setShowDinos] = useState(false);
-  
+
   // Safety wrapper to prevent rendering invalid text nodes
   const safeSetInsights = (value: string) => {
     const cleaned = value?.trim();
@@ -35,13 +40,14 @@ export default function TrackScreen() {
   const [dataPreview, setDataPreview] = useState<Array<{ date: string; activities: Record<string, boolean>; outcome: number }>>([]);
   const [regressionResults, setRegressionResults] = useState<any>(null);
   const [scatterData, setScatterData] = useState<Array<{ x: number; y: number; predicted: number; date: string }>>([]);
+  const [useLag, setUseLag] = useState(false);
   const [whoopData, setWhoopData] = useState<any[]>([]);
   const [whoopToken, setWhoopToken] = useState<string>('');
   const [isLoadingWhoop, setIsLoadingWhoop] = useState(false);
   const [weeklyPlan, setWeeklyPlan] = useState<WeeklyPlan | null>(null);
   const [planLoading, setPlanLoading] = useState(false);
   const [planError, setPlanError] = useState<string | null>(null);
-  
+
   // Safety wrapper to prevent rendering invalid text nodes
   const safeSetPlanError = (value: string | null) => {
     if (!value) {
@@ -71,7 +77,7 @@ export default function TrackScreen() {
       const savedRating = await getOutcomeRating(today);
       setRating(savedRating);
     }
-    
+
     // Restore Whoop token
     const token = await getWhoopToken();
     if (token) {
@@ -117,7 +123,7 @@ export default function TrackScreen() {
   const handleRatingSelect = async (value: number) => {
     setRating(value);
     await logOutcomeRating(value, today);
-    
+
     // Auto-refresh plan if one exists
     if (weeklyPlan && regressionResults) {
       setTimeout(() => handleGeneratePlan(), 1000);
@@ -128,6 +134,12 @@ export default function TrackScreen() {
     const dummyData = generateDummyData(6, activities);
     await populateDummyData(dummyData);
     alert('Populated 6 months of dummy data!');
+    loadData();
+  };
+
+  const handleClearTestData = async () => {
+    await clearSyntheticData();
+    alert('Cleared test data!');
     loadData();
   };
 
@@ -155,10 +167,10 @@ export default function TrackScreen() {
 
       const formattedData = formatWhoopDataForAnalysis(cycles, recoveries, sleeps);
       setWhoopData(formattedData);
-      
+
       // Save to database
       await saveWhoopData(formattedData);
-      
+
       alert(`Fetched and saved ${formattedData.length} days of Whoop data!`);
     } catch (error) {
       console.error('Error fetching Whoop data:', error);
@@ -179,7 +191,7 @@ export default function TrackScreen() {
   const handleRunAnalysis = async () => {
     const dataset = await getFullDataset();
     console.log('[Track] Full dataset:', dataset.slice(0, 3));
-    
+
     let validData = dataset
       .filter(d => d.outcome !== null && d.outcome !== undefined)
       .map(d => ({
@@ -187,21 +199,21 @@ export default function TrackScreen() {
         activities: d.activities,
         outcome: d.outcome as number,
       }));
-    
+
     // Enrich with Whoop data if available
     const whoopData = await getWhoopData();
     if (whoopData.length > 0) {
       console.log('[Track] Enriching with Whoop data:', whoopData.length, 'entries');
       validData = enrichDataWithWhoop(validData, whoopData);
     }
-    
+
     console.log('[Track] Valid data:', validData.slice(0, 3));
     setDataPreview(validData.slice(0, 10)); // Show last 10 days
-    
-    const results = getRegressionAnalysis(validData, false);
+
+    const results = getRegressionAnalysis(validData, useLag);
     setRegressionResults(results);
     setValidDataForPlan(validData);
-    
+
     // Prepare scatter plot data with dates
     if (results.predictions && results.actuals) {
       const scatter = results.actuals.map((actual, i) => ({
@@ -212,7 +224,7 @@ export default function TrackScreen() {
       }));
       setScatterData(scatter);
     }
-    
+
     const summary = generateInsightSummary(results);
     console.log('[Track] Setting insights:', JSON.stringify(summary.substring(0, 100)));
     safeSetInsights(summary);
@@ -310,54 +322,54 @@ export default function TrackScreen() {
       </View>
 
       <View style={styles.section}>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.analyticsToggle}
           onPress={() => setShowAnalytics(!showAnalytics)}
         >
           <Text style={styles.sectionTitle}>🧪 Testing & Analytics</Text>
           <Text style={styles.toggleIcon}>{showAnalytics ? '▼' : '▶'}</Text>
         </TouchableOpacity>
-        
+
         {showAnalytics && (
           <View style={styles.analyticsContent}>
             <TouchableOpacity style={styles.testButton} onPress={handlePopulateDummyData}>
               <Text style={styles.testButtonText}>Generate 6 Months Dummy Data</Text>
             </TouchableOpacity>
-            
-            <View style={styles.whoopSection}>
-              <Text style={styles.sectionTitle}>Whoop Integration</Text>
-              
-              <TextInput
-                style={styles.input}
-                placeholder="Or paste access token here"
-                placeholderTextColor="#999"
-                value={whoopToken}
-                onChangeText={setWhoopToken}
-                secureTextEntry
-              />
-              
-              <TouchableOpacity 
-                style={styles.testButton} 
-                onPress={handleConnectWhoop}
+
+            <TouchableOpacity style={[styles.testButton, styles.clearTestButton]} onPress={handleClearTestData}>
+              <Text style={styles.testButtonText}>Clear Test Data</Text>
+            </TouchableOpacity>
+
+            <WhoopPanel
+              whoopToken={whoopToken}
+              onChangeToken={setWhoopToken}
+              isLoadingWhoop={isLoadingWhoop}
+              onConnectWhoop={handleConnectWhoop}
+              onFetchWhoopData={handleFetchWhoopData}
+            />
+
+            <Text style={styles.helper}>Compare activities against:</Text>
+            <View style={styles.lagToggleContainer}>
+              <TouchableOpacity
+                style={[styles.lagToggleButton, !useLag && styles.lagToggleButtonSelected]}
+                onPress={() => setUseLag(false)}
               >
-                <Text style={styles.testButtonText}>Connect via OAuth</Text>
+                <Text style={[styles.lagToggleText, !useLag && styles.lagToggleTextSelected]}>
+                  Same-day
+                </Text>
               </TouchableOpacity>
-              
-              {whoopToken && (
-                <TouchableOpacity 
-                  style={[styles.testButton, isLoadingWhoop && styles.testButtonDisabled]} 
-                  onPress={handleFetchWhoopData}
-                  disabled={isLoadingWhoop}
-                >
-                  <Text style={styles.testButtonText}>
-                    {isLoadingWhoop ? 'Fetching...' : 'Fetch Whoop Data'}
-                  </Text>
-                </TouchableOpacity>
-              )}
+              <TouchableOpacity
+                style={[styles.lagToggleButton, useLag && styles.lagToggleButtonSelected]}
+                onPress={() => setUseLag(true)}
+              >
+                <Text style={[styles.lagToggleText, useLag && styles.lagToggleTextSelected]}>
+                  Next-day
+                </Text>
+              </TouchableOpacity>
             </View>
-            
+
             <TouchableOpacity style={styles.analyzeButton} onPress={handleRunAnalysis}>
-              <BeakerIcon size={28} color="#ffffff" />
+              <BeakerIcon size={28} color={Brand.white} />
               <Text style={styles.analyzeButtonText}>Run Analysis</Text>
             </TouchableOpacity>
 
@@ -378,184 +390,29 @@ export default function TrackScreen() {
                 <Text style={styles.errorText}>{planError}</Text>
               </View>
             )}
-            
+
             {insights && insights.trim() && insights.trim() !== '.' && (
               <View style={styles.insightsBox}>
                 <Text style={styles.insightsText}>{insights}</Text>
               </View>
             )}
-            
+
             {regressionResults && regressionResults.impacts.length > 0 && (
               <ImpactChart impacts={regressionResults.impacts} />
             )}
-            
-            {weeklyPlan && weeklyPlan.days && (
-              <View style={styles.planContainer}>
-                <Text style={styles.planTitle}>Your 1-Week Plan</Text>
-                <Text style={styles.planSummary}>{weeklyPlan.summary || ''}</Text>
-                {weeklyPlan.rationale ? (
-                  <Text style={styles.planRationale}>{weeklyPlan.rationale}</Text>
-                ) : null}
-                {weeklyPlan.guidelines && weeklyPlan.guidelines.length > 0 && (
-                  <View style={styles.guidelinesBox}>
-                    <Text style={styles.guidelinesTitle}>Guidelines</Text>
-                    {weeklyPlan.guidelines.map((g, i) => (
-                      <Text key={i} style={styles.guidelineItem}>• {g}</Text>
-                    ))}
-                  </View>
-                )}
-                {weeklyPlan.days.map((day) => (
-                  <View key={day.day_index} style={styles.dayCard}>
-                    <Text style={styles.dayLabel}>{day.label || ''}</Text>
-                    <Text style={styles.dayFocus}>{day.focus || ''}</Text>
-                    {day.activities && day.activities.map((act) => (
-                      <View key={act.id} style={styles.activityItem}>
-                        <Text style={styles.activityName}>{act.name || ''}</Text>
-                        {act.instructions ? (
-                          <Text style={styles.activityInstructions}>{act.instructions}</Text>
-                        ) : null}
-                        {act.reason ? (
-                          <Text style={styles.activityReason}>{act.reason}</Text>
-                        ) : null}
-                      </View>
-                    ))}
-                  </View>
-                ))}
-              </View>
-            )}
 
+            {weeklyPlan && <WeeklyPlanCard plan={weeklyPlan} />}
 
             {regressionResults && scatterData.length > 0 && (
-              <View style={styles.visualContainer}>
-                <Text style={styles.tableTitle}>Predicted vs Actual Outcomes</Text>
-                <Text style={styles.chartSubtitle}>R² = {regressionResults.r2.toFixed(3)}</Text>
-                
-                <View style={styles.chartWrapper}>
-                  {/* Y-axis labels */}
-                  <View style={styles.yAxisLabels}>
-                    <Text style={styles.axisLabel}>10</Text>
-                    <Text style={styles.axisLabel}>1</Text>
-                  </View>
-                  
-                  <View style={styles.chartArea}>
-                    <View style={styles.scatterPlot}>
-                      {/* Diagonal trend line (perfect prediction) */}
-                      <svg width="100%" height="100%" style={{ position: 'absolute' }}>
-                        <line
-                          x1="0%"
-                          y1="100%"
-                          x2="100%"
-                          y2="0%"
-                          stroke="rgba(37, 99, 235, 0.3)"
-                          strokeWidth="2"
-                          strokeDasharray="5,5"
-                        />
-                      </svg>
-                      
-                      {/* Data points */}
-                      {scatterData.map((point, i) => {
-                        const x = ((point.x - 1) / 9) * 100; // Scale 1-10 to 0-100%
-                        const y = 100 - ((point.y - 1) / 9) * 100; // Invert Y axis
-                        
-                        return (
-                          <View
-                            key={i}
-                            style={[
-                              styles.dataPoint,
-                              {
-                                left: `${x}%`,
-                                top: `${y}%`,
-                              },
-                            ]}
-                          />
-                        );
-                      })}
-                    </View>
-                    
-                    {/* Bottom axis labels */}
-                    <View style={styles.xAxisLabels}>
-                      <Text style={styles.axisLabel}>1</Text>
-                      <Text style={styles.axisLabel}>5</Text>
-                      <Text style={styles.axisLabel}>10</Text>
-                    </View>
-                    <Text style={styles.xAxisTitle}>Actual Outcome</Text>
-                  </View>
-                </View>
-              </View>
+              <ScatterChart r2={regressionResults.r2} data={scatterData} />
             )}
-            
-            {dataPreview.length > 0 && (
-              <View style={styles.tableContainer}>
-                <Text style={styles.tableTitle}>Data Sample (Last 10 Days)</Text>
-                <ScrollView horizontal>
-                  <View style={styles.table}>
-                    <View style={styles.tableRow}>
-                      <Text style={[styles.tableCell, styles.tableHeader, styles.dateCell]}>Date</Text>
-                      {Object.keys(dataPreview[0].activities).map(activity => (
-                        <Text key={activity} style={[styles.tableCell, styles.tableHeader, styles.activityCell]}>
-                          {activity}
-                        </Text>
-                      ))}
-                      <Text style={[styles.tableCell, styles.tableHeader, styles.outcomeHeaderCell]}>Outcome</Text>
-                    </View>
-                    {dataPreview.map((row, i) => (
-                      <View key={i} style={styles.tableRow}>
-                        <Text style={[styles.tableCell, styles.dateCell]}>{row.date.slice(5)}</Text>
-                        {Object.keys(dataPreview[0].activities).map(activity => (
-                          <Text key={activity} style={[styles.tableCell, styles.activityCell]}>
-                            {row.activities[activity] ? '1' : '0'}
-                          </Text>
-                        ))}
-                        <Text style={[styles.tableCell, styles.outcomeCell, styles.outcomeDataCell]}>
-                          {typeof row.outcome === 'number' ? row.outcome : 'N/A'}
-                        </Text>
-                      </View>
-                    ))}
-                  </View>
-                </ScrollView>
-              </View>
-            )}
+
+            <DataTable data={dataPreview} />
           </View>
         )}
       </View>
-      
-      {whoopData.length > 0 && (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Whoop Data</Text>
-          <ScrollView horizontal>
-            <View style={styles.table}>
-              <View style={styles.tableRow}>
-                <Text style={[styles.tableCell, styles.tableHeader, styles.dateCell]}>Date</Text>
-                <Text style={[styles.tableCell, styles.tableHeader, styles.activityCell]}>Strain</Text>
-                <Text style={[styles.tableCell, styles.tableHeader, styles.activityCell]}>Recovery</Text>
-                <Text style={[styles.tableCell, styles.tableHeader, styles.activityCell]}>HRV</Text>
-                <Text style={[styles.tableCell, styles.tableHeader, styles.activityCell]}>Sleep (hrs)</Text>
-                <Text style={[styles.tableCell, styles.tableHeader, styles.activityCell]}>Sleep %</Text>
-              </View>
-              {whoopData.slice(0, 10).map((row, i) => (
-                <View key={i} style={styles.tableRow}>
-                  <Text style={[styles.tableCell, styles.dateCell]}>{row.date}</Text>
-                  <Text style={[styles.tableCell, styles.activityCell]}>
-                    {row.strain?.toFixed(1) || '-'}
-                  </Text>
-                  <Text style={[styles.tableCell, styles.activityCell]}>
-                    {row.recoveryScore || '-'}
-                  </Text>
-                  <Text style={[styles.tableCell, styles.activityCell]}>
-                    {row.hrv?.toFixed(0) || '-'}
-                  </Text>
-                  <Text style={[styles.tableCell, styles.activityCell]}>
-                    {row.sleepDuration?.toFixed(1) || '-'}
-                  </Text>
-                  <Text style={[styles.tableCell, styles.activityCell]}>
-                    {row.sleepPerformance || '-'}
-                  </Text>
-                </View>
-              ))}
-            </View>
-          </ScrollView>
-        </View>
-      )}
+
+      <WhoopDataTable whoopData={whoopData} />
     </ScrollView>
   );
 }
@@ -566,7 +423,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingVertical: 40,
     gap: 32,
-    backgroundColor: '#ffffff',
+    backgroundColor: Brand.white,
     alignItems: 'center',
     maxWidth: 700,
     width: '100%',
@@ -575,7 +432,7 @@ const styles = StyleSheet.create({
   brandTitle: {
     fontSize: 36,
     fontWeight: '700',
-    color: '#f55e61',
+    color: Brand.orange,
     letterSpacing: -1,
     marginBottom: -8,
     textAlign: 'center',
@@ -584,13 +441,13 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: '700',
     textAlign: 'center',
-    color: '#1a1a1a',
+    color: Brand.ink,
     letterSpacing: -0.5,
   },
   subtitle: {
     fontSize: 15,
     textAlign: 'center',
-    color: '#666666',
+    color: Brand.inkSoft,
     marginTop: -8,
   },
   section: {
@@ -601,7 +458,7 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '600',
     textAlign: 'center',
-    color: '#1a1a1a',
+    color: Brand.ink,
   },
   helper: {
     fontSize: 12,
@@ -624,15 +481,15 @@ const styles = StyleSheet.create({
     height: 24,
     borderRadius: 6,
     borderWidth: 2,
-    borderColor: '#2563eb',
+    borderColor: Brand.accentBlue,
     alignItems: 'center',
     justifyContent: 'center',
   },
   checkboxChecked: {
-    backgroundColor: '#2563eb',
+    backgroundColor: Brand.accentBlue,
   },
   checkmark: {
-    color: '#fff',
+    color: Brand.white,
     fontSize: 16,
     fontWeight: '700',
   },
@@ -651,20 +508,20 @@ const styles = StyleSheet.create({
     height: 50,
     borderRadius: 10,
     borderWidth: 2,
-    borderColor: '#2563eb',
+    borderColor: Brand.accentBlue,
     alignItems: 'center',
     justifyContent: 'center',
   },
   ratingButtonSelected: {
-    backgroundColor: '#2563eb',
+    backgroundColor: Brand.accentBlue,
   },
   ratingText: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#2563eb',
+    color: Brand.accentBlue,
   },
   ratingTextSelected: {
-    color: '#fff',
+    color: Brand.white,
   },
   analyticsToggle: {
     flexDirection: 'row',
@@ -681,22 +538,48 @@ const styles = StyleSheet.create({
   testButton: {
     padding: 14,
     borderRadius: 12,
-    backgroundColor: '#059669',
+    backgroundColor: Brand.success,
     alignItems: 'center',
-    shadowColor: '#000',
+    shadowColor: Brand.shadow,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 3,
     elevation: 2,
   },
   testButtonText: {
-    color: '#fff',
+    color: Brand.white,
     fontWeight: '700',
     fontSize: 14,
     letterSpacing: 0.5,
   },
+  clearTestButton: {
+    backgroundColor: Brand.danger,
+  },
   buttonDisabled: {
     opacity: 0.6,
+  },
+  lagToggleContainer: {
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'center',
+  },
+  lagToggleButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    borderWidth: 2,
+    borderColor: Brand.accentBlue,
+  },
+  lagToggleButtonSelected: {
+    backgroundColor: Brand.accentBlue,
+  },
+  lagToggleText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: Brand.accentBlue,
+  },
+  lagToggleTextSelected: {
+    color: Brand.white,
   },
   errorBox: {
     padding: 12,
@@ -706,89 +589,8 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(239, 68, 68, 0.3)',
   },
   errorText: {
-    color: '#dc2626',
+    color: Brand.danger,
     fontSize: 14,
-  },
-  planContainer: {
-    marginTop: 16,
-    padding: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(16, 185, 129, 0.3)',
-    backgroundColor: 'rgba(236, 253, 245, 0.6)',
-    gap: 12,
-  },
-  planTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#065f46',
-  },
-  planSummary: {
-    fontSize: 14,
-    lineHeight: 22,
-    color: '#047857',
-  },
-  planRationale: {
-    fontSize: 13,
-    lineHeight: 20,
-    color: '#059669',
-    opacity: 0.9,
-  },
-  guidelinesBox: {
-    padding: 12,
-    borderRadius: 8,
-    backgroundColor: 'rgba(255,255,255,0.7)',
-    gap: 4,
-  },
-  guidelinesTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#065f46',
-    marginBottom: 4,
-  },
-  guidelineItem: {
-    fontSize: 13,
-    lineHeight: 20,
-    color: '#047857',
-  },
-  dayCard: {
-    padding: 12,
-    borderRadius: 10,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: 'rgba(16, 185, 129, 0.2)',
-    gap: 8,
-  },
-  dayLabel: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#065f46',
-  },
-  dayFocus: {
-    fontSize: 13,
-    color: '#059669',
-    fontStyle: 'italic',
-  },
-  activityItem: {
-    paddingLeft: 8,
-    borderLeftWidth: 3,
-    borderLeftColor: 'rgba(16, 185, 129, 0.4)',
-    gap: 4,
-  },
-  activityName: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#334155',
-  },
-  activityInstructions: {
-    fontSize: 13,
-    lineHeight: 18,
-    color: '#64748b',
-  },
-  activityReason: {
-    fontSize: 12,
-    color: '#94a3b8',
-    fontStyle: 'italic',
   },
   insightsBox: {
     marginTop: 12,
@@ -797,7 +599,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(37, 99, 235, 0.2)',
     backgroundColor: 'rgba(239, 246, 255, 0.5)',
-    shadowColor: '#000',
+    shadowColor: Brand.shadow,
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
     shadowRadius: 2,
@@ -806,144 +608,7 @@ const styles = StyleSheet.create({
   insightsText: {
     fontSize: 14,
     lineHeight: 22,
-    color: '#334155',
-  },
-  tableContainer: {
-    marginTop: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(37, 99, 235, 0.2)',
-    padding: 12,
-    backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
-    alignItems: 'center',
-  },
-  tableTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    marginBottom: 8,
-    textAlign: 'center',
-    color: '#1e293b',
-  },
-  table: {
-    minWidth: '100%',
-    borderRadius: 8,
-    overflow: 'hidden',
-  },
-  tableRow: {
-    flexDirection: 'row',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(226, 232, 240, 0.8)',
-    alignItems: 'center',
-  },
-  tableCell: {
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    fontSize: 13,
-    textAlign: 'center',
-    color: '#475569',
-  },
-  dateCell: {
-    width: 90,
-    textAlign: 'left',
-    fontWeight: '500',
-  },
-  activityCell: {
-    width: 120,
-    fontWeight: '500',
-  },
-  outcomeHeaderCell: {
-    width: 100,
-  },
-  outcomeDataCell: {
-    width: 100,
-    fontWeight: '700',
-    color: '#2563eb',
-    fontSize: 14,
-  },
-  tableHeader: {
-    fontWeight: '700',
-    backgroundColor: '#f1f5f9',
-    color: '#334155',
-    fontSize: 12,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  outcomeCell: {
-    fontWeight: '700',
-    color: '#2563eb',
-  },
-  visualContainer: {
-    marginTop: 16,
-    padding: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(37, 99, 235, 0.2)',
-    backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  chartSubtitle: {
-    fontSize: 13,
-    opacity: 0.7,
-    marginBottom: 16,
-    textAlign: 'center',
-    color: '#64748b',
-  },
-  chartWrapper: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  yAxisLabels: {
-    justifyContent: 'space-between',
-    paddingVertical: 4,
-    width: 30,
-  },
-  chartArea: {
-    flex: 1,
-  },
-  scatterPlot: {
-    width: '100%',
-    height: 300,
-    position: 'relative',
-    backgroundColor: 'rgba(0,0,0,0.02)',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.1)',
-  },
-  dataPoint: {
-    position: 'absolute',
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#2563eb',
-    marginLeft: -4,
-    marginTop: -4,
-    opacity: 0.7,
-  },
-  xAxisLabels: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 4,
-    paddingHorizontal: 4,
-  },
-  axisLabel: {
-    fontSize: 11,
-    opacity: 0.7,
-  },
-  xAxisTitle: {
-    textAlign: 'center',
-    fontSize: 12,
-    fontWeight: '600',
-    marginTop: 4,
-    opacity: 0.8,
+    color: Brand.slateMed,
   },
   barContainer: {
     marginBottom: 12,
@@ -964,10 +629,10 @@ const styles = StyleSheet.create({
     minWidth: 2,
   },
   barPositive: {
-    backgroundColor: '#10b981',
+    backgroundColor: Brand.successLight,
   },
   barNegative: {
-    backgroundColor: '#ef4444',
+    backgroundColor: Brand.dangerLight,
   },
   barValue: {
     fontSize: 11,
@@ -982,8 +647,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 32,
     paddingVertical: 20,
     borderRadius: 16,
-    backgroundColor: '#4a90e2',
-    shadowColor: '#4a90e2',
+    backgroundColor: Brand.blue,
+    shadowColor: Brand.blue,
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.4,
     shadowRadius: 12,
@@ -991,7 +656,7 @@ const styles = StyleSheet.create({
     marginVertical: 8,
   },
   analyzeButtonText: {
-    color: '#ffffff',
+    color: Brand.white,
     fontWeight: '700',
     fontSize: 18,
     letterSpacing: 0.5,
