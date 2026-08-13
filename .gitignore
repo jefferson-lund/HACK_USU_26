@@ -20,11 +20,15 @@ expo-env.d.ts
 
 # Metro
 .metro-health-check*
+metro_logs.txt
 
 # debug
 npm-debug.*
 yarn-debug.*
 yarn-error.*
+
+# cross-machine artifacts
+wsl.localhost/
 
 # macOS
 .DS_Store
