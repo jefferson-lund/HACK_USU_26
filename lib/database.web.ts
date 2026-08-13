@@ -15,6 +15,13 @@ let webStorage: {
   whoopData: {},
 };
 
+// Tracks which dates' logs/ratings came from "Generate 6 Months Dummy Data"
+// rather than real user check-ins, so they can be told apart and removed
+// later via clearSyntheticData(). Keyed by date since dummy data writes a
+// whole day's activities/rating at once.
+const syntheticLogDates = new Set<string>();
+const syntheticRatingDates = new Set<string>();
+
 export const initDatabase = async () => {
   console.log('Using in-memory storage for Web');
 };
@@ -41,6 +48,8 @@ export const logActivity = async (activityName: string, completed: boolean, date
     webStorage.logs[date] = {};
   }
   webStorage.logs[date][activityName] = completed;
+  // Real, user-driven write: this date's log is no longer (purely) synthetic.
+  syntheticLogDates.delete(date);
   console.log('Logged activity:', { activityName, completed, date });
 };
 
@@ -82,7 +91,9 @@ export const populateDummyData = async (data: Array<{ date: string; activities: 
   for (const entry of data) {
     webStorage.logs[entry.date] = entry.activities;
     webStorage.ratings[entry.date] = entry.outcome;
-    
+    syntheticLogDates.add(entry.date);
+    syntheticRatingDates.add(entry.date);
+
     // Add activities to the list if not present
     for (const activityName of Object.keys(entry.activities)) {
       if (!webStorage.activities.includes(activityName)) {
@@ -96,8 +107,25 @@ export const populateDummyData = async (data: Array<{ date: string; activities: 
   console.log('[DB] All activities in storage:', webStorage.activities);
 };
 
+export const clearSyntheticData = async () => {
+  for (const date of syntheticLogDates) {
+    delete webStorage.logs[date];
+  }
+  for (const date of syntheticRatingDates) {
+    delete webStorage.ratings[date];
+  }
+  console.log('[DB] Cleared synthetic data:', {
+    logDates: syntheticLogDates.size,
+    ratingDates: syntheticRatingDates.size,
+  });
+  syntheticLogDates.clear();
+  syntheticRatingDates.clear();
+};
+
 export const logOutcomeRating = async (rating: number, date: string) => {
   webStorage.ratings[date] = rating;
+  // Real, user-driven write: this date's rating is no longer synthetic.
+  syntheticRatingDates.delete(date);
   console.log('Logged outcome rating:', { rating, date });
 };
 

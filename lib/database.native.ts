@@ -28,6 +28,7 @@ export const initDatabase = async () => {
       activity_id INTEGER NOT NULL,
       completed INTEGER NOT NULL,
       date TEXT NOT NULL,
+      is_synthetic INTEGER NOT NULL DEFAULT 0,
       FOREIGN KEY (activity_id) REFERENCES activities (id),
       UNIQUE(activity_id, date)
     );
@@ -37,10 +38,27 @@ export const initDatabase = async () => {
     CREATE TABLE IF NOT EXISTS outcome_ratings (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       rating INTEGER NOT NULL,
-      date TEXT NOT NULL UNIQUE
+      date TEXT NOT NULL UNIQUE,
+      is_synthetic INTEGER NOT NULL DEFAULT 0
     );
   `);
-};
+
+  // The two CREATE TABLE IF NOT EXISTS statements above only add the
+  // is_synthetic column for brand-new installs — SQLite's IF NOT EXISTS
+  // does nothing to a table that already exists without the column. There's
+  // no migration framework in this app, so guard a best-effort ALTER TABLE
+  // for existing installs; it throws if the column is already present
+  // (no IF NOT EXISTS support for ADD COLUMN in SQLite), which we ignore.
+  try {
+    db.execSync('ALTER TABLE activity_logs ADD COLUMN is_synthetic INTEGER NOT NULL DEFAULT 0');
+  } catch {
+    // Column already exists.
+  }
+  try {
+    db.execSync('ALTER TABLE outcome_ratings ADD COLUMN is_synthetic INTEGER NOT NULL DEFAULT 0');
+  } catch {
+    // Column already exists.
+  }
 
   db.execSync(`
     CREATE TABLE IF NOT EXISTS whoop_token (
@@ -64,6 +82,8 @@ export const initDatabase = async () => {
       sleep_duration REAL
     );
   `);
+};
+
 export const saveSetup = async (outcome: string, activities: string[]) => {
   if (!db) {
     db = SQLite.openDatabaseSync('tracker.db');
@@ -103,7 +123,7 @@ export const logActivity = async (activityName: string, completed: boolean, date
   if (!activity) return;
 
   db.runSync(
-    'INSERT OR REPLACE INTO activity_logs (activity_id, completed, date) VALUES (?, ?, ?)',
+    'INSERT OR REPLACE INTO activity_logs (activity_id, completed, date, is_synthetic) VALUES (?, ?, ?, 0)',
     [activity.id, completed ? 1 : 0, date]
   );
 };
@@ -133,7 +153,7 @@ export const logOutcomeRating = async (rating: number, date: string) => {
   }
 
   db.runSync(
-    'INSERT OR REPLACE INTO outcome_ratings (rating, date) VALUES (?, ?)',
+    'INSERT OR REPLACE INTO outcome_ratings (rating, date, is_synthetic) VALUES (?, ?, 0)',
     [rating, date]
   );
 };
@@ -237,18 +257,27 @@ export const populateDummyData = async (data: Array<{ date: string; activities: 
       
       if (activity) {
         db.runSync(
-          'INSERT OR REPLACE INTO activity_logs (activity_id, completed, date) VALUES (?, ?, ?)',
+          'INSERT OR REPLACE INTO activity_logs (activity_id, completed, date, is_synthetic) VALUES (?, ?, ?, 1)',
           [activity.id, completed ? 1 : 0, entry.date]
         );
       }
     }
-    
+
     // Insert outcome rating
     db.runSync(
-      'INSERT OR REPLACE INTO outcome_ratings (rating, date) VALUES (?, ?)',
+      'INSERT OR REPLACE INTO outcome_ratings (rating, date, is_synthetic) VALUES (?, ?, 1)',
       [entry.outcome, entry.date]
     );
   }
+};
+
+export const clearSyntheticData = async () => {
+  if (!db) {
+    db = SQLite.openDatabaseSync('tracker.db');
+  }
+
+  db.runSync('DELETE FROM activity_logs WHERE is_synthetic = 1');
+  db.runSync('DELETE FROM outcome_ratings WHERE is_synthetic = 1');
 };
 
 export const saveWhoopToken = async (accessToken: string, refreshToken?: string) => {
