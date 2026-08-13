@@ -72,7 +72,22 @@ const pearsonCorrelation = (x: number[], y: number[]): number => {
   return denominator === 0 ? 0 : numerator / denominator;
 };
 
-const classifyImpact = (coeff: number): ActivityImpact['impact'] => {
+const classifyImpact = (
+  coeff: number,
+  method: RegressionResult['method']
+): ActivityImpact['impact'] => {
+  if (method === 'pearson-correlation') {
+    // Pearson's r is mathematically bounded to [-1, 1], so it needs its own,
+    // tighter cutoffs — the >1.0 "strong" thresholds below can never fire
+    // for a bounded coefficient.
+    if (coeff > 0.7) return 'strong positive';
+    if (coeff > 0.3) return 'moderate positive';
+    if (coeff < -0.7) return 'strong negative';
+    if (coeff < -0.3) return 'moderate negative';
+    return 'neutral';
+  }
+
+  // Multiple-regression coefficients are unbounded, in outcome-point units.
   if (coeff > 1.0) return 'strong positive';
   if (coeff > 0.3) return 'moderate positive';
   if (coeff < -1.0) return 'strong negative';
@@ -122,15 +137,6 @@ export const getRegressionAnalysis = (data: CheckIn[], useLag: boolean = false):
     alignedData.push({ x, y });
   }
   
-  console.log('[Analysis] Aligned data length:', alignedData.length);
-  console.log('[Analysis] Activity names:', activityNames);
-  console.log('[Analysis] First 5 rows:', alignedData.slice(0, 5));
-  console.log('[Analysis] Activity variance check:', activityNames.map((name, idx) => ({
-    activity: name,
-    sum: alignedData.reduce((sum, row) => sum + row.x[idx], 0),
-    variance: alignedData.length > 0 ? alignedData.reduce((sum, row) => sum + row.x[idx], 0) / alignedData.length : 0
-  })));
-  
   if (alignedData.length === 0) {
     return {
       impacts: [],
@@ -150,7 +156,7 @@ export const getRegressionAnalysis = (data: CheckIn[], useLag: boolean = false):
       return {
         activity: name,
         coefficient: correlation,
-        impact: classifyImpact(correlation),
+        impact: classifyImpact(correlation, 'pearson-correlation'),
       };
     });
     
@@ -166,26 +172,17 @@ export const getRegressionAnalysis = (data: CheckIn[], useLag: boolean = false):
   const { MultivariateLinearRegression } = require('ml-regression');
   const X = alignedData.map(d => d.x);
   const Y = alignedData.map(d => [d.y]);
-  
-  console.log('[Analysis] Matrix X shape:', X.length, 'x', X[0]?.length);
-  console.log('[Analysis] Matrix Y shape:', Y.length, 'x', Y[0]?.length);
-  
+
   const regression = new MultivariateLinearRegression(X, Y);
-  
-  console.log('[Analysis] Regression weights:', regression.weights);
-  console.log('[Analysis] Regression weights shape:', regression.weights.length, 'x', regression.weights[0]?.length);
-  
+
   // MultivariateLinearRegression returns weights as [features x outputs]
   // For single output, we need the first column of each row
   const coefficients = regression.weights.map((row: number[]) => row[0]);
-  
-  console.log('[Analysis] Coefficients:', coefficients);
-  console.log('[Analysis] Activity names:', activityNames);
-  
+
   const impacts: ActivityImpact[] = activityNames.map((name, i) => ({
     activity: name,
     coefficient: coefficients[i] || 0,
-    impact: classifyImpact(coefficients[i] || 0),
+    impact: classifyImpact(coefficients[i] || 0, 'multiple-regression'),
   }));
   
   // Calculate R²
