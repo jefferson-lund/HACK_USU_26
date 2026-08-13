@@ -1,9 +1,21 @@
+import * as Linking from 'expo-linking';
+
+// Not secret -- used client-side to build the WHOOP authorization URL.
 const WHOOP_CLIENT_ID = process.env.EXPO_PUBLIC_WHOOP_CLIENT_ID;
-const WHOOP_CLIENT_SECRET = process.env.EXPO_PUBLIC_WHOOP_CLIENT_SECRET;
 const WHOOP_API_BASE = 'https://api.prod.whoop.com/developer/v1';
 const WHOOP_AUTH_URL = 'https://api.prod.whoop.com/oauth/oauth2/auth';
-const WHOOP_TOKEN_URL = 'https://api.prod.whoop.com/oauth/oauth2/token';
-const REDIRECT_URI = process.env.EXPO_PUBLIC_WHOOP_REDIRECT_URI || 'https://oauth.pstmn.io/v1/callback';
+
+// The redirect must be a URI the app itself owns so the OAuth deep-link
+// listener in app/(tabs)/track.tsx can catch it. Linking.createURL builds the
+// right scheme for both Expo Go and standalone builds (using app.json's
+// "scheme"), so that's the default; EXPO_PUBLIC_WHOOP_REDIRECT_URI remains
+// available as a manual override if it's ever needed.
+const REDIRECT_URI = process.env.EXPO_PUBLIC_WHOOP_REDIRECT_URI || Linking.createURL('whoop-callback');
+
+function getApiBase(): string {
+  const base = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:4000';
+  return base.replace(/\/$/, ''); // Remove trailing slash
+}
 
 export function getWhoopAuthUrl(): string {
   const params = new URLSearchParams({
@@ -15,19 +27,16 @@ export function getWhoopAuthUrl(): string {
   return `${WHOOP_AUTH_URL}?${params.toString()}`;
 }
 
+// The client secret must never live in the app bundle (EXPO_PUBLIC_* vars are
+// inlined into the shipped JS). The actual token exchange with WHOOP happens
+// server-side at POST /api/whoop/token -- see server/index.js.
 export async function exchangeCodeForToken(code: string): Promise<{ access_token: string; refresh_token: string }> {
-  const response = await fetch(WHOOP_TOKEN_URL, {
+  const response = await fetch(`${getApiBase()}/api/whoop/token`, {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
+      'Content-Type': 'application/json',
     },
-    body: new URLSearchParams({
-      grant_type: 'authorization_code',
-      code: code,
-      client_id: WHOOP_CLIENT_ID!,
-      client_secret: WHOOP_CLIENT_SECRET!,
-      redirect_uri: REDIRECT_URI,
-    }),
+    body: JSON.stringify({ code, redirect_uri: REDIRECT_URI }),
   });
 
   if (!response.ok) {
