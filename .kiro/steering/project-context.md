@@ -15,7 +15,8 @@ This is a React Native/Expo mobile application that helps users define and refin
 - **React Native Web 0.21.0** - Web platform support
 
 ### Backend
-- **Express 5.0.1** - Node.js server
+- **Express 5.0.1** - Node.js server, local dev only (`server/index.js`)
+- **Cloudflare Pages Functions** - Workers-runtime port of the same routes for production (`functions/`), see CLOUDFLARE.md
 - **OpenAI API** - GPT-4o-mini model for hypothesis generation
 - **CORS** - Cross-origin resource sharing
 
@@ -59,8 +60,19 @@ lib/                   # Utility libraries
 ├── analysis.ts        # Regression/correlation analysis for track.tsx
 └── database.native.ts / database.web.ts  # Storage backends (SQLite / in-memory)
 
-server/                # Express backend
-└── index.js          # OpenAI proxy server (port 4000)
+server/                # Express backend (local dev only, port 4000)
+└── index.js          # OpenAI/Gemini/WHOOP proxy -- npm run server
+
+functions/             # Cloudflare Pages Functions (production API)
+├── _lib/              # Shared helpers (env, CORS, rate limiting)
+├── api/               # /api/hypothesis, /api/weekly-plan, /api/whoop/token, /api/health
+└── hypothesis.ts      # Root-level backward-compat mount
+                       # Parallel Workers-runtime port of server/index.js's
+                       # routes -- see CLOUDFLARE.md. Kept in sync by hand;
+                       # Express and Workers don't share a runtime.
+
+wrangler.toml          # Cloudflare Pages config (build output dir, rate
+                       # limiting binding)
 
 assets/                # Static assets (images, fonts)
 ```

@@ -138,6 +138,14 @@ npm run android  # Android device/emulator
 npm run ios      # iOS device/simulator
 ```
 
+### Deploying as a demo webapp
+
+See [CLOUDFLARE.md](./CLOUDFLARE.md) for deploying the web build to
+Cloudflare Pages — the `server/index.js` proxy above is rewritten onto
+Cloudflare Pages Functions (`functions/`) so it can run on the same edge as
+the static site, with a Cloudflare-native rate limiter in place of the
+in-memory one (which doesn't survive Workers' per-request isolate model).
+
 ## Design Decisions
 
 ### Why Expo?
