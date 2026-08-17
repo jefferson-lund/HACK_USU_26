@@ -1,4 +1,5 @@
 import * as Linking from 'expo-linking';
+import { getApiBase } from '@/lib/apiBase';
 
 // Not secret -- used client-side to build the WHOOP authorization URL.
 const WHOOP_CLIENT_ID = process.env.EXPO_PUBLIC_WHOOP_CLIENT_ID;
@@ -11,11 +12,6 @@ const WHOOP_AUTH_URL = 'https://api.prod.whoop.com/oauth/oauth2/auth';
 // "scheme"), so that's the default; EXPO_PUBLIC_WHOOP_REDIRECT_URI remains
 // available as a manual override if it's ever needed.
 const REDIRECT_URI = process.env.EXPO_PUBLIC_WHOOP_REDIRECT_URI || Linking.createURL('whoop-callback');
-
-function getApiBase(): string {
-  const base = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:4000';
-  return base.replace(/\/$/, ''); // Remove trailing slash
-}
 
 export function getWhoopAuthUrl(): string {
   const params = new URLSearchParams({
@@ -31,7 +27,12 @@ export function getWhoopAuthUrl(): string {
 // inlined into the shipped JS). The actual token exchange with WHOOP happens
 // server-side at POST /api/whoop/token -- see server/index.js.
 export async function exchangeCodeForToken(code: string): Promise<{ access_token: string; refresh_token: string }> {
-  const response = await fetch(`${getApiBase()}/api/whoop/token`, {
+  const base = getApiBase();
+  if (base === null) {
+    throw new Error('Could not determine the backend URL. Set EXPO_PUBLIC_API_BASE_URL.');
+  }
+
+  const response = await fetch(`${base}/api/whoop/token`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

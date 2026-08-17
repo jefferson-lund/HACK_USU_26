@@ -1,4 +1,5 @@
 import type { RegressionResult } from '@/lib/analysis';
+import { getApiBase } from '@/lib/apiBase';
 
 export interface WeeklyPlanDay {
   day_index: number;
@@ -21,11 +22,6 @@ export interface WeeklyPlan {
   rationale: string;
   guidelines: string[];
   days: WeeklyPlanDay[];
-}
-
-function getApiBase(): string {
-  const base = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:4000';
-  return base.replace(/\/$/, ''); // Remove trailing slash
 }
 
 /**
@@ -81,7 +77,11 @@ export function buildWeeklyPlanPayload(
  * Calls the backend to generate a personalized 7-day plan from correlation analysis.
  */
 export async function generateWeeklyPlan(payload: Record<string, unknown>): Promise<WeeklyPlan> {
-  const url = `${getApiBase()}/api/weekly-plan`;
+  const base = getApiBase();
+  if (base === null) {
+    throw new Error('Could not determine the backend URL. Set EXPO_PUBLIC_API_BASE_URL.');
+  }
+  const url = `${base}/api/weekly-plan`;
 
   try {
     const response = await fetch(url, {

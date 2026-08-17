@@ -1,46 +1,4 @@
-import { Platform } from 'react-native';
-import Constants from 'expo-constants';
-
-function getBaseUrl(): string | null {
-  // 1. Explicit override via env (works for web and native)
-  const fromEnv =
-    typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_API_BASE_URL?.trim();
-  if (fromEnv) {
-    return fromEnv;
-  }
-
-  // 2. Web: always try backend on port 4000 when running on localhost
-  if (Platform.OS === 'web' && typeof window !== 'undefined') {
-    const { hostname } = window.location;
-    if (hostname === 'localhost' || hostname === '127.0.0.1') {
-      return 'http://localhost:4000';
-    }
-    return `http://${hostname}:4000`;
-  }
-
-  // 3. Native (Expo Go / dev build): use Expo hostUri and swap to port 4000
-  const hostUri =
-    // SDK 54/55: hostUri usually lives here during development
-    (Constants.expoConfig as any)?.hostUri ||
-    // Fallback for older/newer configs
-    (Constants as any).manifest2?.extra?.expoClient?.hostUri ||
-    (Constants as any).manifest?.hostUri;
-
-  if (hostUri && typeof hostUri === 'string') {
-    // Examples:
-    // - 192.168.1.10:8081
-    // - exp://192.168.1.10:8081
-    // - 192.168.1.10:8081?something
-    const withoutScheme = hostUri.replace(/^https?:\/\//, '').replace(/^exp:\/\//, '');
-    const [hostAndPort] = withoutScheme.split(/[/?]/);
-    const [host] = hostAndPort.split(':');
-    if (host) {
-      return `http://${host}:4000`;
-    }
-  }
-
-  return null;
-}
+import { getApiBase } from '@/lib/apiBase';
 
 export type HypothesisResult = { hypothesis: string; usedFallback: boolean };
 
@@ -60,9 +18,9 @@ export async function generateHypothesis(
       ', ',
     )} will help me ${trimmedOutcome}.`;
 
-  const baseUrl = getBaseUrl();
+  const baseUrl = getApiBase();
 
-  if (!baseUrl) {
+  if (baseUrl === null) {
     console.warn('[LLM] No backend base URL. Start the server with: npm run server');
     return { hypothesis: fallbackText(), usedFallback: true };
   }
