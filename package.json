@@ -7,9 +7,13 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "server": "node server/index.js"
+    "server": "node server/index.js",
+    "cf:build": "expo export -p web",
+    "cf:dev": "npm run cf:build && wrangler pages dev dist",
+    "cf:deploy": "npm run cf:build && wrangler pages deploy dist"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240925.0",
     "@react-navigation/native": "^7.1.31",
     "@types/react": "~19.1.10",
     "cors": "^2.8.6",
@@ -36,7 +40,8 @@
     "react-native-svg": "^15.15.3",
     "react-native-web": "^0.21.2",
     "react-native-worklets": "^0.5.1",
-    "typescript": "~5.9.2"
+    "typescript": "~5.9.2",
+    "wrangler": "^3.78.0"
   },
   "private": true,
   "dependencies": {

@@ -22,6 +22,9 @@ expo-env.d.ts
 .metro-health-check*
 metro_logs.txt
 
+# Cloudflare Wrangler
+.wrangler/
+
 # debug
 npm-debug.*
 yarn-debug.*

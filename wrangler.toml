@@ -1,0 +1,30 @@
+# Cloudflare Pages config. See CLOUDFLARE.md for the full deploy walkthrough.
+name = "wohl"
+compatibility_date = "2024-09-23"
+
+# Where `npm run cf:build` (expo export -p web) writes the static site.
+# Recent wrangler versions read this so `wrangler pages dev` / `deploy` don't
+# need an explicit directory argument -- pass one anyway (see package.json)
+# in case your installed wrangler version predates this field.
+pages_build_output_dir = "dist"
+
+# Rate limiting for the AI-backed / external-API routes (functions/_lib/
+# rateLimit.ts), replacing the in-memory limiter server/index.js uses locally
+# -- Workers/Pages Functions have no reliable memory across requests, so that
+# approach silently under-counts in production.
+#
+# `simple.period` only supports 10 or 60 (seconds) -- there's no direct
+# equivalent of "30 requests per 15 minutes", so this approximates it as
+# 2 requests/minute per client (2 * 15 = 30). Adjust `limit` if you want a
+# looser or tighter cap.
+#
+# This is a newer Cloudflare binding type; if `wrangler pages deploy` rejects
+# this block, add the same binding from the dashboard instead (Workers &
+# Pages -> your project -> Settings -> Functions -> Rate limiting bindings)
+# using the same binding name (RATE_LIMITER) so functions/_lib/rateLimit.ts
+# picks it up either way. The app runs fine without it -- see that file's
+# fail-open behavior -- just without the cap.
+[[ratelimits]]
+name = "RATE_LIMITER"
+namespace_id = "1001"
+simple = { limit = 2, period = 60 }
