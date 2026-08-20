@@ -236,19 +236,43 @@ export const getFullDataset = async (): Promise<Array<{
   })).sort((a, b) => b.date.localeCompare(a.date));
 };
 
-export const populateDummyData = async (data: Array<{ date: string; activities: Record<string, boolean>; outcome: number }>) => {
+export const populateDummyData = async (
+  data: Array<{ date: string; activities: Record<string, boolean>; outcome: number }>
+): Promise<{ inserted: number; skipped: number }> => {
   const db = getDb();
+  let inserted = 0;
+  let skipped = 0;
 
   for (const entry of data) {
+    // Never overwrite a real check-in.
+    //
+    // generateDummyData's range ends TODAY, so it overlaps whatever the user
+    // has actually logged in the last six months. This used to be an
+    // unconditional INSERT OR REPLACE ... is_synthetic = 1, which relabelled
+    // genuine rows as synthetic -- and clearSyntheticData would then delete
+    // them, while the UI cheerfully reported that real check-ins were kept.
+    const realLog = db.getFirstSync(
+      'SELECT 1 AS present FROM activity_logs WHERE date = ? AND is_synthetic = 0 LIMIT 1',
+      [entry.date]
+    );
+    const realRating = db.getFirstSync(
+      'SELECT 1 AS present FROM outcome_ratings WHERE date = ? AND is_synthetic = 0 LIMIT 1',
+      [entry.date]
+    );
+    if (realLog || realRating) {
+      skipped += 1;
+      continue;
+    }
+
     // Insert activities
     for (const [activityName, completed] of Object.entries(entry.activities)) {
       db.runSync('INSERT OR IGNORE INTO activities (name) VALUES (?)', [activityName]);
-      
+
       const activity = db.getFirstSync<{ id: number }>(
         'SELECT id FROM activities WHERE name = ?',
         [activityName]
       );
-      
+
       if (activity) {
         db.runSync(
           'INSERT OR REPLACE INTO activity_logs (activity_id, completed, date, is_synthetic) VALUES (?, ?, ?, 1)',
@@ -262,7 +286,10 @@ export const populateDummyData = async (data: Array<{ date: string; activities: 
       'INSERT OR REPLACE INTO outcome_ratings (rating, date, is_synthetic) VALUES (?, ?, 1)',
       [entry.outcome, entry.date]
     );
+    inserted += 1;
   }
+
+  return { inserted, skipped };
 };
 
 export const clearSyntheticData = async () => {

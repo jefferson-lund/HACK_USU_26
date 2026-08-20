@@ -12,7 +12,9 @@
     "cf:dev": "npm run cf:build && wrangler pages dev dist",
     "cf:deploy": "npm run cf:build && wrangler pages deploy dist",
     "typecheck": "tsc --noEmit",
-    "verify:analysis": "node --experimental-strip-types --import ./scripts/ts-resolve.mjs scripts/verify-analysis.mjs"
+    "verify:analysis": "node --experimental-strip-types --import ./scripts/ts-resolve.mjs scripts/verify-analysis.mjs",
+    "verify:storage": "node --experimental-strip-types --import ./scripts/ts-resolve.mjs scripts/verify-storage.mjs",
+    "verify": "npm run verify:analysis && npm run verify:storage"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20240925.0",

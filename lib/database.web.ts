@@ -84,11 +84,25 @@ export const getFullDataset = async (): Promise<Array<{
   })).sort((a, b) => b.date.localeCompare(a.date));
 };
 
-export const populateDummyData = async (data: Array<{ date: string; activities: Record<string, boolean>; outcome: number }>) => {
-  console.log('[DB] Populating dummy data, first entry:', data[0]);
-  console.log('[DB] First entry activities:', Object.keys(data[0].activities));
-  
+export const populateDummyData = async (
+  data: Array<{ date: string; activities: Record<string, boolean>; outcome: number }>
+): Promise<{ inserted: number; skipped: number }> => {
+  let inserted = 0;
+  let skipped = 0;
+
   for (const entry of data) {
+    // Never overwrite a real check-in -- see the note in database.native.ts.
+    // A date counts as real if it has data that was not written by a previous
+    // populateDummyData call.
+    const hasRealLog =
+      webStorage.logs[entry.date] !== undefined && !syntheticLogDates.has(entry.date);
+    const hasRealRating =
+      webStorage.ratings[entry.date] !== undefined && !syntheticRatingDates.has(entry.date);
+    if (hasRealLog || hasRealRating) {
+      skipped += 1;
+      continue;
+    }
+
     webStorage.logs[entry.date] = entry.activities;
     webStorage.ratings[entry.date] = entry.outcome;
     syntheticLogDates.add(entry.date);
@@ -100,11 +114,10 @@ export const populateDummyData = async (data: Array<{ date: string; activities: 
         webStorage.activities.push(activityName);
       }
     }
+    inserted += 1;
   }
-  console.log('Populated dummy data:', data.length, 'entries');
-  console.log('[DB] Sample ratings:', Object.entries(webStorage.ratings).slice(0, 3));
-  console.log('[DB] Sample logs:', Object.entries(webStorage.logs).slice(0, 3));
-  console.log('[DB] All activities in storage:', webStorage.activities);
+
+  return { inserted, skipped };
 };
 
 export const clearSyntheticData = async () => {

@@ -171,9 +171,15 @@ export default function TrackScreen() {
   const handlePopulateDummyData = async () => {
     try {
       const dummyData = generateDummyData(6, activities);
-      await populateDummyData(dummyData);
+      const { inserted, skipped } = await populateDummyData(dummyData);
       await loadData();
-      alert(`Added ${dummyData.length} days of sample data.`);
+      alert(
+        skipped > 0
+          ? `Added ${inserted} days of sample data. Skipped ${skipped} ${
+              skipped === 1 ? 'day' : 'days'
+            } you had already logged.`
+          : `Added ${inserted} days of sample data.`
+      );
     } catch (error) {
       console.error('Failed to populate sample data:', error);
       alert('Could not add sample data. Please try again.');
