@@ -1,9 +1,11 @@
 import { ScrollViewStyleReset } from 'expo-router/html';
 
-// This file is web-only and used to configure the root HTML for every
-// web page during static rendering.
-// The contents of this function only run in Node.js environments and
-// do not have access to the DOM or browser APIs.
+import { VERSION_STORAGE_KEY } from '@/lib/siteVersion';
+
+/**
+ * Web-only HTML shell, rendered by Node at export time. Global to every route,
+ * so nothing here can differ per version.
+ */
 export default function Root({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
@@ -11,28 +13,41 @@ export default function Root({ children }: { children: React.ReactNode }) {
         <meta charSet="utf-8" />
         <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
         <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
-
-        {/* 
-          Disable body scrolling on web. This makes ScrollView components work closer to how they do on native. 
-          However, body scrolling is often nice to have for mobile web. If you want to enable it, remove this line.
-        */}
+        <title>wohl</title>
         <ScrollViewStyleReset />
-
-        {/* Using raw CSS styles as an escape-hatch to ensure the background color never flickers in dark-mode. */}
         <style dangerouslySetInnerHTML={{ __html: responsiveBackground }} />
-        {/* Add any additional <head> elements that you want globally available on web... */}
+        <script dangerouslySetInnerHTML={{ __html: versionGate }} />
       </head>
       <body>{children}</body>
     </html>
   );
 }
 
+// The screens hardcode a light palette (see constants/Colors.ts) and
+// useColorScheme.web.ts always returns 'light', so a dark body would just put
+// a black frame behind white content.
 const responsiveBackground = `
 body {
   background-color: #fff;
-}
-@media (prefers-color-scheme: dark) {
-  body {
-    background-color: #000;
-  }
 }`;
+
+/**
+ * Honors the stored version before the JS bundle is requested, so a returning
+ * visitor never sees a frame of the wrong version -- only a brief blank one.
+ *
+ * The pathname guard is essential: this script runs on every route, so without
+ * it, loading /legacy while the preference said "v2" would bounce straight
+ * back and make the switch unusable. Only "/" is ambiguous.
+ */
+const versionGate = `
+(function () {
+  try {
+    var p = window.location.pathname.replace(/\\/index\\.html$/, '/');
+    if (p !== '/' && p !== '') return;
+    if (window.localStorage.getItem('${VERSION_STORAGE_KEY}') !== 'legacy') return;
+    window.location.replace('/legacy' + window.location.search + window.location.hash);
+  } catch (e) {
+    // Storage blocked (e.g. Safari private browsing). The root layout's
+    // post-hydration effect handles it instead.
+  }
+})();`;
