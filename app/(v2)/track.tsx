@@ -1,5 +1,5 @@
 import { useFocusEffect } from '@react-navigation/native';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
 
 import { Text, View } from '@/components/Themed';
@@ -91,28 +91,35 @@ export default function TrackScreen() {
     }, [loadData])
   );
 
-  useEffect(() => {
-    // Handle OAuth redirect
-    const handleDeepLink = async (event: { url: string }) => {
-      const { queryParams } = Linking.parse(event.url);
-      if (queryParams?.code) {
-        try {
-          const { access_token, refresh_token } = await exchangeCodeForToken(queryParams.code as string);
-          setWhoopToken(access_token);
-          await saveWhoopToken(access_token, refresh_token);
-          alert('Successfully connected to Whoop!');
-          // Automatically fetch data
-          await handleFetchWhoopDataWithToken(access_token);
-        } catch (error) {
-          console.error('OAuth error:', error);
-          alert('Failed to connect to Whoop');
+  // useFocusEffect, not useEffect: only one screen can hold navigation focus,
+  // so this guarantees exactly one live listener even though both the v2 and
+  // the legacy Track screen register one. Two listeners would each call
+  // exchangeCodeForToken with the same single-use code, and the loser would
+  // surface a spurious "Failed to connect" error.
+  useFocusEffect(
+    useCallback(() => {
+      // Handle OAuth redirect
+      const handleDeepLink = async (event: { url: string }) => {
+        const { queryParams } = Linking.parse(event.url);
+        if (queryParams?.code) {
+          try {
+            const { access_token, refresh_token } = await exchangeCodeForToken(queryParams.code as string);
+            setWhoopToken(access_token);
+            await saveWhoopToken(access_token, refresh_token);
+            alert('Successfully connected to Whoop!');
+            // Automatically fetch data
+            await handleFetchWhoopDataWithToken(access_token);
+          } catch (error) {
+            console.error('OAuth error:', error);
+            alert('Failed to connect to Whoop');
+          }
         }
-      }
-    };
+      };
 
-    const subscription = Linking.addEventListener('url', handleDeepLink);
-    return () => subscription.remove();
-  }, []);
+      const subscription = Linking.addEventListener('url', handleDeepLink);
+      return () => subscription.remove();
+    }, [])
+  );
 
   const toggleActivity = async (activity: string) => {
     const newValue = !completed[activity];
