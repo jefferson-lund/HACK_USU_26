@@ -13,18 +13,28 @@ pages_build_output_dir = "dist"
 # -- Workers/Pages Functions have no reliable memory across requests, so that
 # approach silently under-counts in production.
 #
+# NOTE ON SYNTAX: this must be `[[unsafe.bindings]]` with `type = "ratelimit"`,
+# not the newer top-level `[[ratelimits]]` block. Workers rate limiting only
+# went GA in September 2025; wrangler 3.x (pinned in package.json) predates
+# that and silently DISCARDS `[[ratelimits]]` as an unknown field, reporting
+# "No bindings found" -- which, combined with checkRateLimit()'s fail-open
+# behavior, left the OpenAI-backed endpoints completely uncapped in
+# production. Verified with `wrangler pages dev`: the unsafe form reports
+# `ratelimit: RATE_LIMITER [connected to remote resource]` and returns 429 on
+# the 3rd request within the window, while `[[ratelimits]]` let everything
+# through. Cloudflare's GA changelog confirms unsafe bindings keep working.
+#
+# If you upgrade to wrangler 4.x, switch this to `[[ratelimits]]` and re-run
+# the same check -- do not assume it carried over.
+#
 # `simple.period` only supports 10 or 60 (seconds) -- there's no direct
 # equivalent of "30 requests per 15 minutes", so this approximates it as
 # 2 requests/minute per client (2 * 15 = 30). Adjust `limit` if you want a
 # looser or tighter cap.
 #
-# This is a newer Cloudflare binding type; if `wrangler pages deploy` rejects
-# this block, add the same binding from the dashboard instead (Workers &
-# Pages -> your project -> Settings -> Functions -> Rate limiting bindings)
-# using the same binding name (RATE_LIMITER) so functions/_lib/rateLimit.ts
-# picks it up either way. The app runs fine without it -- see that file's
-# fail-open behavior -- just without the cap.
-[[ratelimits]]
+# The "unsafe fields are experimental" warning on startup is expected.
+[[unsafe.bindings]]
 name = "RATE_LIMITER"
+type = "ratelimit"
 namespace_id = "1001"
 simple = { limit = 2, period = 60 }

@@ -74,20 +74,51 @@ something this rewrite can do for you.
 
 ## Rate limiting
 
-`wrangler.toml` declares a `RATE_LIMITER` binding under `[[ratelimits]]`.
-This is a newer Cloudflare feature — if your installed `wrangler` version
-doesn't recognize that block on deploy, add the same binding from the
-dashboard instead (Workers & Pages → your project → Settings → Functions →
-Rate limiting bindings), name it `RATE_LIMITER`, and `functions/_lib/
-rateLimit.ts` will pick it up either way. If neither is set up, the app
-still works — `checkRateLimit()` fails open — just without the cap, so this
-is worth doing before sharing the link widely, not a hard blocker to a first
-deploy.
+`wrangler.toml` declares a `RATE_LIMITER` binding. **It must use
+`[[unsafe.bindings]]` with `type = "ratelimit"`, not the newer top-level
+`[[ratelimits]]` block.**
+
+This matters more than it looks. Workers rate limiting only reached GA in
+September 2025, and the pinned wrangler (3.x) predates it: given
+`[[ratelimits]]` it prints `Unexpected fields found in top-level field:
+"ratelimits"` followed by `No bindings found` — and then silently carries on.
+Because `checkRateLimit()` in `functions/_lib/rateLimit.ts` deliberately fails
+open, the result was a *fully uncapped* set of OpenAI-backed endpoints on a
+public URL with a live API key, with nothing in the logs saying so.
+
+Verify it rather than trusting the config, because both states start up
+successfully:
+
+```bash
+npm run cf:build
+npx wrangler pages dev dist --port 8788
+
+# Startup should report the binding:
+#   - Unsafe Metadata:
+#     - ratelimit: RATE_LIMITER [connected to remote resource]
+
+# And the cap should actually bite -- 200, 200, then 429:
+for i in 1 2 3; do
+  curl -s -o /dev/null -w "%{http_code}\n" -X POST \
+    http://127.0.0.1:8788/api/hypothesis \
+    -H 'Content-Type: application/json' \
+    -d '{"outcome":"sleep better","activities":["walk"]}'
+done
+```
+
+If you upgrade to wrangler 4.x, switch to `[[ratelimits]]` and run that check
+again — do not assume it carried over. The dashboard route (Workers & Pages →
+your project → Settings → Functions → Rate limiting bindings) also works; name
+the binding `RATE_LIMITER` either way.
 
 The binding only supports fixed 10s or 60s windows, so `wrangler.toml`
 approximates the local server's "~30 requests per 15 minutes" as 2 requests/
-minute per client. Adjust `simple.limit`/`simple.period` if you want
-something looser or tighter.
+minute per client. Adjust `simple.limit` / `simple.period` to taste.
+
+Note what a 429 does to the client: `lib/llm.ts` treats any non-OK response as
+a reason to fall back to its local template, so a rate-limited visitor sees a
+"Template" badge rather than an error. That is a reasonable degradation, but it
+does mean hitting the cap looks like a quality drop rather than a limit.
 
 ## Build and deploy
 
