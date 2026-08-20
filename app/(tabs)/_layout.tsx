@@ -14,6 +14,15 @@ export default function TabLayout() {
     <Tabs
       screenOptions={{
         tabBarActiveTintColor: Colors[colorScheme].tint,
+        tabBarLabelStyle: {
+          fontSize: 14,
+          fontWeight: '600',
+          marginBottom: 6,
+        },
+        tabBarStyle: {
+          paddingVertical: 8,
+          height: 80,
+        },
         // Disable the static render of the header on web
         // to prevent a hydration error in React Navigation v6.
         headerShown: useClientOnlyValue(false, true),
@@ -30,7 +39,7 @@ export default function TabLayout() {
                 web: 'settings',
               }}
               tintColor={color}
-              size={28}
+              size={36}
             />
           ),
         }}
@@ -47,7 +56,7 @@ export default function TabLayout() {
                 web: 'check_box',
               }}
               tintColor={color}
-              size={28}
+              size={36}
             />
           ),
         }}
