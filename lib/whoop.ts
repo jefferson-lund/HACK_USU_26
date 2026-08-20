@@ -13,9 +13,25 @@ const WHOOP_AUTH_URL = 'https://api.prod.whoop.com/oauth/oauth2/auth';
 // available as a manual override if it's ever needed.
 const REDIRECT_URI = process.env.EXPO_PUBLIC_WHOOP_REDIRECT_URI || Linking.createURL('whoop-callback');
 
+/**
+ * WHOOP needs EXPO_PUBLIC_WHOOP_CLIENT_ID at build time. It is unset in most
+ * builds, so callers should check this before offering to connect.
+ */
+export function isWhoopConfigured(): boolean {
+  return typeof WHOOP_CLIENT_ID === 'string' && WHOOP_CLIENT_ID.length > 0;
+}
+
 export function getWhoopAuthUrl(): string {
+  if (!isWhoopConfigured()) {
+    // Previously a non-null assertion, which sent literal
+    // `client_id=undefined` and dumped the user on a WHOOP error page.
+    throw new Error(
+      'WHOOP is not set up in this build. Set EXPO_PUBLIC_WHOOP_CLIENT_ID to connect.'
+    );
+  }
+
   const params = new URLSearchParams({
-    client_id: WHOOP_CLIENT_ID!,
+    client_id: WHOOP_CLIENT_ID as string,
     redirect_uri: REDIRECT_URI,
     response_type: 'code',
     scope: 'read:recovery read:cycles read:sleep read:workout read:profile',

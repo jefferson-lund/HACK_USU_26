@@ -154,10 +154,9 @@ const styles = StyleSheet.create({
     fontSize: 14,
     letterSpacing: 0.5,
   },
-  // Note: `testButtonDisabled` is referenced above but intentionally left
-  // undefined here, matching the original (unsplit) screen's behavior —
-  // it was never defined there either, so the disabled state currently has
-  // no visual effect. Not in scope to fix as part of this extraction.
+  testButtonDisabled: {
+    opacity: 0.6,
+  },
   table: {
     minWidth: '100%',
     borderRadius: 8,

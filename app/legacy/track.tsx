@@ -1,6 +1,6 @@
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useState } from 'react';
-import { ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
 
 import { Text, View } from '@/components/Themed';
 import { generateDummyData, generateInsightSummary, getRegressionAnalysis, enrichDataWithWhoop } from '@/lib/analysis';
@@ -28,6 +28,11 @@ export default function TrackScreen() {
   const [insights, setInsights] = useState('');
   const [tapCount, setTapCount] = useState(0);
   const [showDinos, setShowDinos] = useState(false);
+  // Distinct from `activities.length === 0`: without this, the "No activities
+  // yet" empty state doubles as the loading state and flashes at every
+  // returning user before their setup hydrates.
+  const [isLoading, setIsLoading] = useState(true);
+  const [analysisRunning, setAnalysisRunning] = useState(false);
 
   // Safety wrapper to prevent rendering invalid text nodes
   const safeSetInsights = (value: string) => {
@@ -66,23 +71,27 @@ export default function TrackScreen() {
   const today = dateKey();
 
   const loadData = useCallback(async () => {
-    console.log('Loading track data...');
-    await initDatabase();
-    const setup = await getSetup();
-    console.log('Setup loaded:', setup);
-    if (setup) {
-      setActivities(setup.activities);
-      setOutcome(setup.outcome);
-      const logs = await getActivityLogs(today);
-      setCompleted(logs);
-      const savedRating = await getOutcomeRating(today);
-      setRating(savedRating);
-    }
+    try {
+      await initDatabase();
+      const setup = await getSetup();
+      if (setup) {
+        setActivities(setup.activities);
+        setOutcome(setup.outcome);
+        const logs = await getActivityLogs(today);
+        setCompleted(logs);
+        const savedRating = await getOutcomeRating(today);
+        setRating(savedRating);
+      }
 
-    // Restore Whoop token
-    const token = await getWhoopToken();
-    if (token) {
-      setWhoopToken(token);
+      // Restore Whoop token
+      const token = await getWhoopToken();
+      if (token) {
+        setWhoopToken(token);
+      }
+    } catch (error) {
+      console.error('Failed to load track data:', error);
+    } finally {
+      setIsLoading(false);
     }
   }, [today]);
 
@@ -123,14 +132,31 @@ export default function TrackScreen() {
   );
 
   const toggleActivity = async (activity: string) => {
-    const newValue = !completed[activity];
+    const previous = completed[activity];
+    const newValue = !previous;
     setCompleted(prev => ({ ...prev, [activity]: newValue }));
-    await logActivity(activity, newValue, today);
+    try {
+      await logActivity(activity, newValue, today);
+    } catch (error) {
+      // Put the checkbox back rather than leaving the UI claiming something
+      // was saved when it wasn't.
+      console.error('Failed to log activity:', error);
+      setCompleted(prev => ({ ...prev, [activity]: previous }));
+      alert('Could not save that activity. Please try again.');
+    }
   };
 
   const handleRatingSelect = async (value: number) => {
+    const previous = rating;
     setRating(value);
-    await logOutcomeRating(value, today);
+    try {
+      await logOutcomeRating(value, today);
+    } catch (error) {
+      console.error('Failed to log rating:', error);
+      setRating(previous);
+      alert('Could not save that rating. Please try again.');
+      return;
+    }
 
     // Auto-refresh plan if one exists
     if (weeklyPlan && regressionResults) {
@@ -157,7 +183,9 @@ export default function TrackScreen() {
       await WebBrowser.openAuthSessionAsync(authUrl);
     } catch (error) {
       console.error('Error opening Whoop auth:', error);
-      alert('Failed to open Whoop authorization');
+      // Surface the real reason -- most often that WHOOP isn't configured in
+      // this build -- rather than a generic failure the user can't act on.
+      alert(error instanceof Error ? error.message : 'Failed to open Whoop authorization');
     }
   };
 
@@ -197,8 +225,27 @@ export default function TrackScreen() {
   };
 
   const handleRunAnalysis = async () => {
+    if (analysisRunning) return;
+    setAnalysisRunning(true);
+    try {
+      await runAnalysis();
+    } catch (error) {
+      // getFullDataset/getWhoopData throwing here used to be an unhandled
+      // rejection with no UI feedback at all.
+      console.error('Analysis failed:', error);
+      alert('Could not run the analysis. Please try again.');
+    } finally {
+      setAnalysisRunning(false);
+    }
+  };
+
+  const runAnalysis = async () => {
+    // Yield a frame first: getRegressionAnalysis runs ml-regression
+    // synchronously on up to ~180 rows, so without this the spinner never
+    // gets a chance to paint before the thread blocks.
+    await new Promise<void>(resolve => setTimeout(resolve, 0));
+
     const dataset = await getFullDataset();
-    console.log('[Track] Full dataset:', dataset.slice(0, 3));
 
     let validData = dataset
       .filter(d => d.outcome !== null && d.outcome !== undefined)
@@ -211,12 +258,10 @@ export default function TrackScreen() {
     // Enrich with Whoop data if available
     const whoopData = await getWhoopData();
     if (whoopData.length > 0) {
-      console.log('[Track] Enriching with Whoop data:', whoopData.length, 'entries');
       validData = enrichDataWithWhoop(validData, whoopData);
     }
 
-    console.log('[Track] Valid data:', validData.slice(0, 3));
-    setDataPreview(validData.slice(0, 10)); // Show last 10 days
+    setDataPreview(validData.slice(0, 10)); // Most recent 10 days (date DESC)
 
     const results = getRegressionAnalysis(validData, useLag);
     setRegressionResults(results);
@@ -238,7 +283,6 @@ export default function TrackScreen() {
     }
 
     const summary = generateInsightSummary(results);
-    console.log('[Track] Setting insights:', JSON.stringify(summary.substring(0, 100)));
     safeSetInsights(summary);
     setWeeklyPlan(null);
     safeSetPlanError(null);
@@ -272,6 +316,14 @@ export default function TrackScreen() {
       }, 3500);
     }
   };
+
+  if (isLoading) {
+    return (
+      <View style={styles.container}>
+        <ActivityIndicator size="large" color={Brand.blue} />
+      </View>
+    );
+  }
 
   if (activities.length === 0) {
     return (
@@ -380,9 +432,19 @@ export default function TrackScreen() {
               </TouchableOpacity>
             </View>
 
-            <TouchableOpacity style={styles.analyzeButton} onPress={handleRunAnalysis}>
-              <BeakerIcon size={28} color={Brand.white} />
-              <Text style={styles.analyzeButtonText}>Run Analysis</Text>
+            <TouchableOpacity
+              style={[styles.analyzeButton, analysisRunning && styles.buttonDisabled]}
+              onPress={handleRunAnalysis}
+              disabled={analysisRunning}
+            >
+              {analysisRunning ? (
+                <ActivityIndicator size="small" color={Brand.white} />
+              ) : (
+                <BeakerIcon size={28} color={Brand.white} />
+              )}
+              <Text style={styles.analyzeButtonText}>
+                {analysisRunning ? 'Analyzing...' : 'Run Analysis'}
+              </Text>
             </TouchableOpacity>
 
             {regressionResults && regressionResults.impacts.length > 0 && (
