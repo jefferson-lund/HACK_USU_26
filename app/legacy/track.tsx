@@ -1,5 +1,5 @@
 import { useFocusEffect } from '@react-navigation/native';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
 
 import { Text, View } from '@/components/Themed';
@@ -37,6 +37,9 @@ export default function TrackScreen() {
   // that is unreliable under react-native-web, and this app is web-first.
   const [confirmingClear, setConfirmingClear] = useState(false);
   const confirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dinoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Discards a slow plan response that a newer request has superseded.
+  const planGenRef = useRef(0);
 
   // Safety wrapper to prevent rendering invalid text nodes
   const safeSetInsights = (value: string) => {
@@ -105,6 +108,14 @@ export default function TrackScreen() {
     }, [loadData])
   );
 
+  useEffect(
+    () => () => {
+      if (dinoTimerRef.current) clearTimeout(dinoTimerRef.current);
+      if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current);
+    },
+    []
+  );
+
   // useFocusEffect, not useEffect: only one screen can hold navigation focus,
   // so this guarantees exactly one live listener even though both the v2 and
   // the legacy Track screen register one. Two listeners would each call
@@ -162,10 +173,14 @@ export default function TrackScreen() {
       return;
     }
 
-    // Auto-refresh plan if one exists
-    if (weeklyPlan && regressionResults) {
-      setTimeout(() => handleGeneratePlan(), 1000);
-    }
+    // No auto-refresh of the weekly plan here.
+    //
+    // This used to fire handleGeneratePlan() on a 1s timer, but that builds its
+    // payload from validDataForPlan, which only runAnalysis() writes -- so the
+    // rating that triggered the refresh was never in the data it regenerated
+    // from. It also leaked the timer and could queue overlapping requests whose
+    // resolution order was undefined. Re-run the analysis to fold in new
+    // ratings.
   };
 
   const handlePopulateDummyData = async () => {
@@ -316,6 +331,11 @@ export default function TrackScreen() {
         date: results.dates?.[i] ?? '',
       }));
       setScatterData(scatter);
+    } else {
+      // The pearson path (fewer than 10 aligned rows) returns no predictions.
+      // Without this the previous run's points stayed on screen, recaptioned
+      // with the new run's R².
+      setScatterData([]);
     }
 
     const summary = generateInsightSummary(results);
@@ -326,18 +346,21 @@ export default function TrackScreen() {
 
   const handleGeneratePlan = async () => {
     if (!regressionResults || !outcome || validDataForPlan.length === 0) return;
+    const generation = ++planGenRef.current;
     setPlanLoading(true);
     safeSetPlanError(null);
     try {
       const payload = buildWeeklyPlanPayload(outcome, regressionResults, validDataForPlan);
       const plan = await generateWeeklyPlan(payload);
+      if (generation !== planGenRef.current) return;
       setWeeklyPlan(plan);
     } catch (err) {
+      if (generation !== planGenRef.current) return;
       console.error('[weeklyPlan] Error:', err);
       const errorMsg = err instanceof Error ? err.message : 'Failed to generate plan';
       safeSetPlanError(errorMsg);
     } finally {
-      setPlanLoading(false);
+      if (generation === planGenRef.current) setPlanLoading(false);
     }
   };
 
@@ -346,7 +369,9 @@ export default function TrackScreen() {
     setTapCount(newCount);
     if (newCount >= 5) {
       setShowDinos(true);
-      setTimeout(() => {
+      if (dinoTimerRef.current) clearTimeout(dinoTimerRef.current);
+      dinoTimerRef.current = setTimeout(() => {
+        dinoTimerRef.current = null;
         setShowDinos(false);
         setTapCount(0);
       }, 3500);

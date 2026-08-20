@@ -11,6 +11,17 @@ interface DataTableProps {
 export default function DataTable({ data }: DataTableProps) {
   if (data.length === 0) return null;
 
+  // Union the activity names across every row, rather than reading them off
+  // data[0].
+  //
+  // `data` is sorted newest-first, so data[0] is today -- the partly-filled-in
+  // day. Taking columns from it hid every activity the user hadn't ticked yet
+  // for ALL rows, and a rating logged with no activities ticked at all
+  // (activities: {}) rendered a table with zero activity columns.
+  const activityNames = Array.from(
+    new Set(data.flatMap(row => Object.keys(row.activities)))
+  );
+
   return (
     <View style={styles.tableContainer}>
       <Text style={styles.tableTitle}>Data Sample (Last 10 Days)</Text>
@@ -18,7 +29,7 @@ export default function DataTable({ data }: DataTableProps) {
         <View style={styles.table}>
           <View style={styles.tableRow}>
             <Text style={[styles.tableCell, styles.tableHeader, styles.dateCell]}>Date</Text>
-            {Object.keys(data[0].activities).map(activity => (
+            {activityNames.map(activity => (
               <Text key={activity} style={[styles.tableCell, styles.tableHeader, styles.activityCell]}>
                 {activity}
               </Text>
@@ -28,9 +39,9 @@ export default function DataTable({ data }: DataTableProps) {
           {data.map((row, i) => (
             <View key={i} style={styles.tableRow}>
               <Text style={[styles.tableCell, styles.dateCell]}>{row.date.slice(5)}</Text>
-              {Object.keys(data[0].activities).map(activity => (
+              {activityNames.map(activity => (
                 <Text key={activity} style={[styles.tableCell, styles.activityCell]}>
-                  {row.activities[activity] ? '1' : '0'}
+                  {activity in row.activities ? (row.activities[activity] ? '1' : '0') : '-'}
                 </Text>
               ))}
               <Text style={[styles.tableCell, styles.outcomeCell, styles.outcomeDataCell]}>

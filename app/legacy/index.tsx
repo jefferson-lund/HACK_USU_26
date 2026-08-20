@@ -101,7 +101,15 @@ export default function TodaySetupScreen() {
 
   useEffect(() => {
     if (!outcome.trim() || activities.length === 0) {
+      // Bump the generation so a request already in flight is discarded.
+      // Without this, clearing the outcome blanked the box and then the stale
+      // response put the old hypothesis straight back -- and left
+      // hypothesisLoading true, pinning the "Generating..." spinner.
+      hypothesisGenRef.current += 1;
       setHypothesis('');
+      setHypothesisFromAI(false);
+      setHypothesisError(null);
+      setHypothesisLoading(false);
       if (debounceRef.current) {
         clearTimeout(debounceRef.current);
         debounceRef.current = null;

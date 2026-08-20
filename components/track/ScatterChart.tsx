@@ -11,6 +11,10 @@ interface ScatterChartProps {
 }
 
 // The "Predicted vs Actual Outcomes" scatter plot.
+/** Keeps a computed position inside the plot box; maps NaN to 0. */
+const clampPercent = (value: number): number =>
+  Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : 0;
+
 export default function ScatterChart({ r2, data }: ScatterChartProps) {
   if (data.length === 0) return null;
 
@@ -43,8 +47,13 @@ export default function ScatterChart({ r2, data }: ScatterChartProps) {
 
             {/* Data points */}
             {data.map((point, i) => {
-              const x = ((point.x - 1) / 9) * 100; // Scale 1-10 to 0-100%
-              const y = 100 - ((point.y - 1) / 9) * 100; // Invert Y axis
+              // Clamped because point.y is a regression PREDICTION, which is
+              // unbounded -- the model happily extrapolates past the 1-10
+              // rating scale (observed up to 11.5, giving top: '-17.1%'). The
+              // plot has no overflow:hidden, so those dots escaped upward over
+              // the R² caption. NaN would have rendered as top: 'NaN%'.
+              const x = clampPercent(((point.x - 1) / 9) * 100);
+              const y = clampPercent(100 - ((point.y - 1) / 9) * 100);
 
               return (
                 <View
