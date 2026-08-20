@@ -10,6 +10,7 @@ import { createRequire } from 'module';
 // analysis.ts uses require() for ml-regression; Metro handles that, plain ESM does not.
 globalThis.require = createRequire(import.meta.url);
 import { getRegressionAnalysis } from '../lib/analysis.ts';
+import { dateKey } from '../lib/dateKey.ts';
 
 let fail = 0;
 const check = (name, cond, detail='') => {
@@ -55,5 +56,15 @@ check('regression: actuals[i] is the outcome on dates[i]', r.actuals.every((a,i)
   const row = big.find(b=>b.date===r.dates[i]); return row && row.outcome===a;
 }));
 
-console.log(fail ? `\n${fail} FAILED` : '\nall analysis checks pass');
+// --- dateKey: local calendar, not UTC
+// 9pm on Aug 20 is still Aug 20 everywhere west of UTC+3, where toISOString()
+// would have rolled it forward to the 21st.
+const evening = new Date(2026, 7, 20, 21, 0, 0);
+check('dateKey: evening stays on the local day', dateKey(evening) === '2026-08-20', `got ${dateKey(evening)}`);
+const morning = new Date(2026, 0, 5, 6, 30, 0);
+check('dateKey: zero-pads month and day', dateKey(morning) === '2026-01-05', `got ${dateKey(morning)}`);
+check('dateKey: agrees with toLocaleDateString for today',
+  dateKey() === new Date().toLocaleDateString('en-CA'), `${dateKey()} vs ${new Date().toLocaleDateString('en-CA')}`);
+
+console.log(fail ? `\n${fail} FAILED` : '\nall checks pass');
 process.exit(fail ? 1 : 0);

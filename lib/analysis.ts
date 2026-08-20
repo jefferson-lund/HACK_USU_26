@@ -1,3 +1,5 @@
+import { dateKey } from './dateKey';
+
 export interface CheckIn {
   date: string;
   activities: Record<string, boolean>;
@@ -33,7 +35,7 @@ export const generateDummyData = (months: number = 6, userActivities: string[] =
   for (let i = months * 30; i >= 0; i--) {
     const date = new Date(today);
     date.setDate(date.getDate() - i);
-    const dateStr = date.toISOString().split('T')[0];
+    const dateStr = dateKey(date);
     
     // Generate activity data with random patterns
     const activityRecord: Record<string, boolean> = {};

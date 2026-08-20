@@ -15,6 +15,7 @@ import ScatterChart from '@/components/track/ScatterChart';
 import WeeklyPlanCard from '@/components/track/WeeklyPlanCard';
 import DataTable from '@/components/track/DataTable';
 import { Brand } from '@/constants/Colors';
+import { dateKey } from '@/lib/dateKey';
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 
@@ -62,7 +63,7 @@ export default function TrackScreen() {
     }
   };
   const [validDataForPlan, setValidDataForPlan] = useState<Array<{ date: string; activities: Record<string, boolean>; outcome: number }>>([]);
-  const today = new Date().toISOString().split('T')[0];
+  const today = dateKey();
 
   const loadData = useCallback(async () => {
     console.log('Loading track data...');
