@@ -221,13 +221,17 @@ export default function TrackScreen() {
     setRegressionResults(results);
     setValidDataForPlan(validData);
 
-    // Prepare scatter plot data with dates
+    // Prepare scatter plot data with dates.
+    //
+    // The date comes from results.dates, not validData[i]: the analysis sorts
+    // its input oldest-first and, under "Next-day", drops a row and shifts the
+    // pairing -- so indexing validData here labelled points with the wrong day.
     if (results.predictions && results.actuals) {
       const scatter = results.actuals.map((actual, i) => ({
         x: actual,
         y: results.predictions![i],
         predicted: results.predictions![i],
-        date: validData[i].date,
+        date: results.dates?.[i] ?? '',
       }));
       setScatterData(scatter);
     }

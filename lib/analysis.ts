@@ -17,6 +17,12 @@ export interface RegressionResult {
   method: 'multiple-regression' | 'pearson-correlation';
   predictions?: number[];
   actuals?: number[];
+  /**
+   * Date of the OUTCOME each aligned row predicts, in the same order as
+   * `predictions`/`actuals`. Under `useLag` this is not the activity's own
+   * date, so callers must use this rather than indexing their input array.
+   */
+  dates?: string[];
 }
 
 export const generateDummyData = (months: number = 6, userActivities: string[] = []): CheckIn[] => {
@@ -96,8 +102,18 @@ const classifyImpact = (
 };
 
 export const getRegressionAnalysis = (data: CheckIn[], useLag: boolean = false): RegressionResult => {
-  // Filter out entries without outcomes
-  const validData = data.filter(d => d.outcome !== null && d.outcome !== undefined);
+  // Filter out entries without outcomes, then sort oldest-first.
+  //
+  // The lag below pairs row i's activities with row i+1's outcome, which is
+  // only "the next day" when the data runs oldest-first. getFullDataset()
+  // returns rows newest-first, so without this sort `useLag` silently
+  // correlated each day's activities with the PREVIOUS day's outcome --
+  // reporting the opposite sign from the truth. Sorting here makes the result
+  // correct no matter what order the caller passes.
+  const validData = data
+    .filter(d => d.outcome !== null && d.outcome !== undefined)
+    .slice()
+    .sort((a, b) => a.date.localeCompare(b.date));
   
   if (validData.length === 0) {
     return {
@@ -124,6 +140,7 @@ export const getRegressionAnalysis = (data: CheckIn[], useLag: boolean = false):
   
   // Build aligned dataset
   const alignedData: { x: number[]; y: number }[] = [];
+  const alignedDates: string[] = [];
   
   for (let i = 0; i < validData.length; i++) {
     const current = validData[i];
@@ -135,6 +152,7 @@ export const getRegressionAnalysis = (data: CheckIn[], useLag: boolean = false):
     const y = validData[outcomeIndex].outcome;
     
     alignedData.push({ x, y });
+    alignedDates.push(validData[outcomeIndex].date);
   }
   
   if (alignedData.length === 0) {
@@ -165,6 +183,7 @@ export const getRegressionAnalysis = (data: CheckIn[], useLag: boolean = false):
       r2: 0,
       sampleSize: alignedData.length,
       method: 'pearson-correlation',
+      dates: alignedDates,
     };
   }
   
@@ -200,6 +219,7 @@ export const getRegressionAnalysis = (data: CheckIn[], useLag: boolean = false):
     method: 'multiple-regression',
     predictions,
     actuals,
+    dates: alignedDates,
   };
 };
 
