@@ -27,8 +27,9 @@ function RootLayoutNav() {
 
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <Stack>
-        <Stack.Screen name="(v2)" options={{ headerShown: false }} />
+      <Stack screenOptions={{ headerShown: false, animation: 'none' }}>
+        <Stack.Screen name="(v2)" />
+        <Stack.Screen name="legacy" />
       </Stack>
     </ThemeProvider>
   );
