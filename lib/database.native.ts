@@ -1,11 +1,23 @@
 import * as SQLite from 'expo-sqlite';
 
-let db: any = null;
+let dbInstance: SQLite.SQLiteDatabase | null = null;
+
+/**
+ * Opens tracker.db on first use and caches the handle.
+ *
+ * Replaces an `if (!db) { db = ... }` guard repeated in 15 places against a
+ * module-level `any`, which made every call in this file an untyped call --
+ * silently opting the whole storage layer out of typechecking.
+ */
+function getDb(): SQLite.SQLiteDatabase {
+  if (!dbInstance) {
+    dbInstance = SQLite.openDatabaseSync('tracker.db');
+  }
+  return dbInstance;
+}
 
 export const initDatabase = async () => {
-  if (!db) {
-    db = SQLite.openDatabaseSync('tracker.db');
-  }
+  const db = getDb();
 
   db.execSync(`
     CREATE TABLE IF NOT EXISTS setup (
@@ -85,9 +97,7 @@ export const initDatabase = async () => {
 };
 
 export const saveSetup = async (outcome: string, activities: string[]) => {
-  if (!db) {
-    db = SQLite.openDatabaseSync('tracker.db');
-  }
+  const db = getDb();
 
   db.runSync('INSERT INTO setup (outcome) VALUES (?)', [outcome]);
   
@@ -97,9 +107,7 @@ export const saveSetup = async (outcome: string, activities: string[]) => {
 };
 
 export const getSetup = async (): Promise<{ outcome: string; activities: string[] } | null> => {
-  if (!db) {
-    db = SQLite.openDatabaseSync('tracker.db');
-  }
+  const db = getDb();
 
   const setup = db.getFirstSync<{ outcome: string }>('SELECT outcome FROM setup ORDER BY id DESC LIMIT 1');
   
@@ -114,9 +122,7 @@ export const getSetup = async (): Promise<{ outcome: string; activities: string[
 };
 
 export const logActivity = async (activityName: string, completed: boolean, date: string) => {
-  if (!db) {
-    db = SQLite.openDatabaseSync('tracker.db');
-  }
+  const db = getDb();
 
   const activity = db.getFirstSync<{ id: number }>('SELECT id FROM activities WHERE name = ?', [activityName]);
   
@@ -129,9 +135,7 @@ export const logActivity = async (activityName: string, completed: boolean, date
 };
 
 export const getActivityLogs = async (date: string): Promise<Record<string, boolean>> => {
-  if (!db) {
-    db = SQLite.openDatabaseSync('tracker.db');
-  }
+  const db = getDb();
 
   const logs = db.getAllSync<{ name: string; completed: number }>(
     `SELECT a.name, al.completed 
@@ -148,9 +152,7 @@ export const getActivityLogs = async (date: string): Promise<Record<string, bool
 };
 
 export const logOutcomeRating = async (rating: number, date: string) => {
-  if (!db) {
-    db = SQLite.openDatabaseSync('tracker.db');
-  }
+  const db = getDb();
 
   db.runSync(
     'INSERT OR REPLACE INTO outcome_ratings (rating, date, is_synthetic) VALUES (?, ?, 0)',
@@ -159,9 +161,7 @@ export const logOutcomeRating = async (rating: number, date: string) => {
 };
 
 export const getOutcomeRating = async (date: string): Promise<number | null> => {
-  if (!db) {
-    db = SQLite.openDatabaseSync('tracker.db');
-  }
+  const db = getDb();
 
   const result = db.getFirstSync<{ rating: number }>(
     'SELECT rating FROM outcome_ratings WHERE date = ?',
@@ -175,9 +175,7 @@ export const getAllActivityLogs = async (): Promise<Array<{
   date: string;
   activities: Record<string, boolean>;
 }>> => {
-  if (!db) {
-    db = SQLite.openDatabaseSync('tracker.db');
-  }
+  const db = getDb();
 
   const logs = db.getAllSync<{ date: string; name: string; completed: number }>(
     `SELECT al.date, a.name, al.completed 
@@ -206,9 +204,7 @@ export const getFullDataset = async (): Promise<Array<{
   activities: Record<string, boolean>;
   outcome: number | null;
 }>> => {
-  if (!db) {
-    db = SQLite.openDatabaseSync('tracker.db');
-  }
+  const db = getDb();
 
   const logs = db.getAllSync<{ date: string; name: string; completed: number }>(
     `SELECT al.date, a.name, al.completed 
@@ -241,9 +237,7 @@ export const getFullDataset = async (): Promise<Array<{
 };
 
 export const populateDummyData = async (data: Array<{ date: string; activities: Record<string, boolean>; outcome: number }>) => {
-  if (!db) {
-    db = SQLite.openDatabaseSync('tracker.db');
-  }
+  const db = getDb();
 
   for (const entry of data) {
     // Insert activities
@@ -272,18 +266,14 @@ export const populateDummyData = async (data: Array<{ date: string; activities: 
 };
 
 export const clearSyntheticData = async () => {
-  if (!db) {
-    db = SQLite.openDatabaseSync('tracker.db');
-  }
+  const db = getDb();
 
   db.runSync('DELETE FROM activity_logs WHERE is_synthetic = 1');
   db.runSync('DELETE FROM outcome_ratings WHERE is_synthetic = 1');
 };
 
 export const saveWhoopToken = async (accessToken: string, refreshToken?: string) => {
-  if (!db) {
-    db = SQLite.openDatabaseSync('tracker.db');
-  }
+  const db = getDb();
   db.runSync(
     'INSERT OR REPLACE INTO whoop_token (id, access_token, refresh_token, updated_at) VALUES (1, ?, ?, CURRENT_TIMESTAMP)',
     [accessToken, refreshToken || null]
@@ -291,9 +281,7 @@ export const saveWhoopToken = async (accessToken: string, refreshToken?: string)
 };
 
 export const getWhoopToken = async (): Promise<string | null> => {
-  if (!db) {
-    db = SQLite.openDatabaseSync('tracker.db');
-  }
+  const db = getDb();
   const result = db.getFirstSync<{ access_token: string }>('SELECT access_token FROM whoop_token WHERE id = 1');
   return result?.access_token || null;
 };
@@ -308,9 +296,7 @@ export const saveWhoopData = async (data: Array<{
   sleepPerformance?: number;
   sleepDuration?: number;
 }>) => {
-  if (!db) {
-    db = SQLite.openDatabaseSync('tracker.db');
-  }
+  const db = getDb();
   
   for (const entry of data) {
     db.runSync(
@@ -341,9 +327,7 @@ export const getWhoopData = async (startDate?: string, endDate?: string): Promis
   sleepPerformance?: number;
   sleepDuration?: number;
 }>> => {
-  if (!db) {
-    db = SQLite.openDatabaseSync('tracker.db');
-  }
+  const db = getDb();
   
   let query = 'SELECT * FROM whoop_data';
   const params: any[] = [];

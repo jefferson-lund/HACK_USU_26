@@ -27,7 +27,6 @@
     "expo-router": "~6.0.23",
     "expo-splash-screen": "~31.0.13",
     "expo-sqlite": "^55.0.10",
-    "expo-symbols": "~1.0.8",
     "expo-web-browser": "~15.0.10",
     "express": "^5.2.1",
     "ml-regression": "^6.3.0",
