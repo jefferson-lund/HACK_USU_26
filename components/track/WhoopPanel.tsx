@@ -91,19 +91,19 @@ export function WhoopDataTable({ whoopData }: WhoopDataTableProps) {
             <View key={i} style={styles.tableRow}>
               <Text style={[styles.tableCell, styles.dateCell]}>{row.date}</Text>
               <Text style={[styles.tableCell, styles.activityCell]}>
-                {row.strain?.toFixed(1) || '-'}
+                {row.strain != null ? row.strain.toFixed(1) : '-'}
               </Text>
               <Text style={[styles.tableCell, styles.activityCell]}>
-                {row.recoveryScore || '-'}
+                {row.recoveryScore ?? '-'}
               </Text>
               <Text style={[styles.tableCell, styles.activityCell]}>
-                {row.hrv?.toFixed(0) || '-'}
+                {row.hrv != null ? row.hrv.toFixed(0) : '-'}
               </Text>
               <Text style={[styles.tableCell, styles.activityCell]}>
-                {row.sleepDuration?.toFixed(1) || '-'}
+                {row.sleepDuration != null ? row.sleepDuration.toFixed(1) : '-'}
               </Text>
               <Text style={[styles.tableCell, styles.activityCell]}>
-                {row.sleepPerformance || '-'}
+                {row.sleepPerformance ?? '-'}
               </Text>
             </View>
           ))}

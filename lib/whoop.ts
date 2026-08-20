@@ -1,4 +1,6 @@
 import * as Linking from 'expo-linking';
+
+import { dateKey } from '@/lib/dateKey';
 import { getApiBase } from '@/lib/apiBase';
 
 // Not secret -- used client-side to build the WHOOP authorization URL.
@@ -174,8 +176,12 @@ export function formatWhoopDataForAnalysis(
   const dataByDate: Record<string, any> = {};
 
   // Process cycles (strain data)
+  // dateKey(new Date(...)), not .split('T')[0]: the API returns UTC instants,
+  // and splitting the raw string yields the UTC date. Check-in keys are LOCAL
+  // (lib/dateKey.ts), so a cycle starting 04:00Z was filed a day ahead of the
+  // check-in it should join, and enrichDataWithWhoop's lookup missed entirely.
   cycles.forEach(cycle => {
-    const date = cycle.start.split('T')[0];
+    const date = dateKey(new Date(cycle.start));
     if (!dataByDate[date]) dataByDate[date] = { date };
     if (cycle.score) {
       dataByDate[date].strain = cycle.score.strain;
@@ -187,7 +193,7 @@ export function formatWhoopDataForAnalysis(
   recoveries.forEach(recovery => {
     const cycle = cycles.find(c => c.id === recovery.cycle_id);
     if (cycle && recovery.score) {
-      const date = cycle.start.split('T')[0];
+      const date = dateKey(new Date(cycle.start));
       if (!dataByDate[date]) dataByDate[date] = { date };
       dataByDate[date].recoveryScore = recovery.score.recovery_score;
       dataByDate[date].hrv = recovery.score.hrv_rmssd_milli;
@@ -196,8 +202,13 @@ export function formatWhoopDataForAnalysis(
   });
 
   // Process sleep
+  // Keyed on `end` (wake time) rather than `start` (bedtime). A sleep that
+  // begins at 23:00 belongs to the following day's recovery, so keying on the
+  // start put sleep metrics one day away from the recovery metrics of the same
+  // WHOOP cycle -- two columns describing the same night landing on different
+  // rows of the regression.
   sleeps.forEach(sleep => {
-    const date = sleep.start.split('T')[0];
+    const date = dateKey(new Date(sleep.end));
     if (!dataByDate[date]) dataByDate[date] = { date };
     if (sleep.score) {
       dataByDate[date].sleepPerformance = sleep.score.sleep_performance_percentage;

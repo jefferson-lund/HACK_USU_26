@@ -301,36 +301,59 @@ export const generateInsightSummary = (results: RegressionResult): string => {
 };
 
 
+/**
+ * Minimum share of check-in days that must carry a WHOOP reading before the
+ * derived columns are worth including at all.
+ */
+const WHOOP_COVERAGE_THRESHOLD = 0.5;
+
 export function enrichDataWithWhoop(
   activityData: CheckIn[],
   whoopData: Array<{
     date: string;
-    strain?: number;
-    recoveryScore?: number;
-    hrv?: number;
-    sleepPerformance?: number;
-    sleepDuration?: number;
+    strain?: number | null;
+    recoveryScore?: number | null;
+    hrv?: number | null;
+    sleepPerformance?: number | null;
+    sleepDuration?: number | null;
   }>
 ): CheckIn[] {
   const whoopByDate = new Map(whoopData.map(d => [d.date, d]));
-  
-  return activityData.map(entry => {
-    const whoop = whoopByDate.get(entry.date);
-    if (!whoop) return entry;
-    
+
+  // getRegressionAnalysis unions activity names across every row and scores a
+  // missing name as 0 -- "you didn't do it". For a WHOOP-derived column that
+  // reading is wrong: an absent day means "no measurement", not "recovery was
+  // not high". With one week of WHOOP data against six months of check-ins,
+  // 174 of 181 rows became false negatives and the coefficient was noise.
+  //
+  // The regression cannot express a missing value per column, so instead of
+  // fabricating zeros: bail out entirely when coverage is thin (keeping the
+  // full primary analysis intact), and otherwise return only the covered days,
+  // so every row that survives has a real reading for every derived column.
+  const covered = activityData.filter(entry => whoopByDate.has(entry.date));
+  if (activityData.length === 0 || covered.length / activityData.length < WHOOP_COVERAGE_THRESHOLD) {
+    return activityData;
+  }
+
+  return covered.map(entry => {
+    const whoop = whoopByDate.get(entry.date)!;
     const enrichedActivities = { ...entry.activities };
-    
-    // Add Whoop metrics as binary activities based on thresholds
-    if (whoop.recoveryScore !== undefined) {
+
+    // `!= null` rather than `!== undefined`: database.native.ts maps SQL NULL
+    // to null, so an undefined-only check treated a missing native reading as
+    // present and compared `null > 66` (false) -- fabricating an explicit
+    // false on native where web left the key absent. Same data, different
+    // column set per platform.
+    if (whoop.recoveryScore != null) {
       enrichedActivities['High Recovery (>66%)'] = whoop.recoveryScore > 66;
     }
-    if (whoop.sleepPerformance !== undefined) {
+    if (whoop.sleepPerformance != null) {
       enrichedActivities['Good Sleep (>85%)'] = whoop.sleepPerformance > 85;
     }
-    if (whoop.strain !== undefined) {
+    if (whoop.strain != null) {
       enrichedActivities['High Strain (>15)'] = whoop.strain > 15;
     }
-    
+
     return {
       ...entry,
       activities: enrichedActivities,

@@ -257,7 +257,7 @@ export const getFullDataset = async (): Promise<Array<{
   return Array.from(allDates).map(date => ({
     date,
     activities: grouped[date] || {},
-    outcome: ratingMap.get(date) || null,
+    outcome: ratingMap.get(date) ?? null,
   })).sort((a, b) => b.date.localeCompare(a.date));
 };
 
@@ -335,7 +335,7 @@ export const saveWhoopToken = async (accessToken: string, refreshToken?: string)
 export const getWhoopToken = async (): Promise<string | null> => {
   const db = getDb();
   const result = db.getFirstSync<{ access_token: string }>('SELECT access_token FROM whoop_token WHERE id = 1');
-  return result?.access_token || null;
+  return result?.access_token ?? null;
 };
 
 export const saveWhoopData = async (data: Array<{
@@ -357,13 +357,16 @@ export const saveWhoopData = async (data: Array<{
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         entry.date,
-        entry.strain || null,
-        entry.avgHeartRate || null,
-        entry.recoveryScore || null,
-        entry.hrv || null,
-        entry.restingHR || null,
-        entry.sleepPerformance || null,
-        entry.sleepDuration || null,
+        // `??` not `||`: a legitimate reading of 0 (a recovery score of 0 is
+        // a real WHOOP value) was being stored as SQL NULL, i.e. "no data",
+        // while database.web.ts preserved it.
+        entry.strain ?? null,
+        entry.avgHeartRate ?? null,
+        entry.recoveryScore ?? null,
+        entry.hrv ?? null,
+        entry.restingHR ?? null,
+        entry.sleepPerformance ?? null,
+        entry.sleepDuration ?? null,
       ]
     );
   }
