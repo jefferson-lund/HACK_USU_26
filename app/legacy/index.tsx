@@ -27,40 +27,75 @@ export default function TodaySetupScreen() {
   const [hypothesisLoading, setHypothesisLoading] = useState(false);
   const [tapCount, setTapCount] = useState(0);
   const [showDinos, setShowDinos] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [hypothesisError, setHypothesisError] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Guards against a slow earlier request resolving after a newer one and
+  // overwriting the fresher hypothesis.
+  const hypothesisGenRef = useRef(0);
+  const dinoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const loadSetup = async () => {
-      await initDatabase();
-      const setup = await getSetup();
-      if (setup) {
-        setOutcome(setup.outcome);
-        setActivities(setup.activities);
-        setIsSetupComplete(true);
+      try {
+        await initDatabase();
+        const setup = await getSetup();
+        if (setup) {
+          setOutcome(setup.outcome);
+          setActivities(setup.activities);
+          setIsSetupComplete(true);
+        }
+      } catch (error) {
+        console.error('Failed to load setup:', error);
+      } finally {
+        setIsLoading(false);
       }
     };
     loadSetup();
   }, []);
 
+  // The easter-egg timer outlived the component before this.
+  useEffect(
+    () => () => {
+      if (dinoTimerRef.current) clearTimeout(dinoTimerRef.current);
+    },
+    []
+  );
+
   const fetchHypothesis = useCallback(async (outcomeText: string, activityList: string[]) => {
     if (!outcomeText.trim() || activityList.length === 0) {
+      // Bump the generation so any in-flight response is discarded rather
+      // than landing after the field was cleared.
+      hypothesisGenRef.current += 1;
       setHypothesis('');
       setHypothesisFromAI(false);
+      setHypothesisError(null);
       return;
     }
+
+    const generation = ++hypothesisGenRef.current;
     setHypothesisLoading(true);
+    setHypothesisError(null);
     try {
       const { hypothesis: text, usedFallback } = await generateHypothesis(
         outcomeText.trim(),
         activityList,
       );
+      if (generation !== hypothesisGenRef.current) return;
       setHypothesis(text);
       setHypothesisFromAI(!usedFallback);
-    } catch {
+    } catch (error) {
+      if (generation !== hypothesisGenRef.current) return;
+      // This used to be a bare `catch {}` that silently blanked the box, so a
+      // failure was indistinguishable from having typed nothing.
+      console.error('Failed to generate hypothesis:', error);
       setHypothesis('');
       setHypothesisFromAI(false);
+      setHypothesisError('Could not draft a hypothesis right now. You can still save your setup.');
     } finally {
-      setHypothesisLoading(false);
+      if (generation === hypothesisGenRef.current) setHypothesisLoading(false);
     }
   }, []);
 
@@ -102,12 +137,23 @@ export default function TodaySetupScreen() {
     setActivities((prev) => prev.filter((a) => a !== activity));
   };
 
+  const canSave = outcome.trim().length > 0 && activities.length > 0;
+
   const handleSaveSetup = async () => {
-    if (!outcome.trim() || activities.length === 0) return;
-    console.log('Saving setup:', { outcome, activities });
-    await saveSetup(outcome, activities);
-    console.log('Setup saved successfully');
-    setIsSetupComplete(true);
+    if (!canSave || saving) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      // Trimmed on save: the hypothesis already used the trimmed value, so an
+      // untrimmed outcome was stored and displayed inconsistently.
+      await saveSetup(outcome.trim(), activities);
+      setIsSetupComplete(true);
+    } catch (error) {
+      console.error('Failed to save setup:', error);
+      setSaveError('Could not save your setup. Please try again.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleBrandTap = () => {
@@ -115,12 +161,22 @@ export default function TodaySetupScreen() {
     setTapCount(newCount);
     if (newCount >= 5) {
       setShowDinos(true);
-      setTimeout(() => {
+      if (dinoTimerRef.current) clearTimeout(dinoTimerRef.current);
+      dinoTimerRef.current = setTimeout(() => {
+        dinoTimerRef.current = null;
         setShowDinos(false);
         setTapCount(0);
       }, 3500);
     }
   };
+
+  if (isLoading) {
+    return (
+      <View style={styles.container}>
+        <ActivityIndicator size="large" color={Brand.blue} />
+      </View>
+    );
+  }
 
   if (isSetupComplete) {
     return (
@@ -266,8 +322,28 @@ export default function TodaySetupScreen() {
                 {hypothesisFromAI ? 'AI Generated' : 'Template'}
               </Text>
             )}
-            <TouchableOpacity style={styles.saveButton} onPress={handleSaveSetup}>
-              <Text style={styles.saveButtonText}>Save & Continue</Text>
+          </View>
+        )}
+
+        {hypothesisError && <Text style={styles.errorText}>{hypothesisError}</Text>}
+
+        {/*
+          Save lives here, a sibling of the hypothesis section rather than a
+          child of it. Nested inside, it only existed once a hypothesis had been
+          produced -- so it appeared ~600ms after typing stopped, and if the
+          draft failed the user could never save at all.
+        */}
+        {canSave && (
+          <View style={styles.section}>
+            {saveError && <Text style={styles.errorText}>{saveError}</Text>}
+            <TouchableOpacity
+              style={[styles.saveButton, saving && styles.saveButtonDisabled]}
+              onPress={handleSaveSetup}
+              disabled={saving}
+            >
+              <Text style={styles.saveButtonText}>
+                {saving ? 'Saving…' : 'Save & Continue'}
+              </Text>
             </TouchableOpacity>
           </View>
         )}
@@ -450,6 +526,14 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 4,
+  },
+  saveButtonDisabled: {
+    opacity: 0.6,
+  },
+  errorText: {
+    fontSize: 14,
+    textAlign: 'center',
+    color: Brand.danger,
   },
   saveButtonText: {
     color: Brand.white,
