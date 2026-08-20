@@ -5,8 +5,6 @@
 export interface Env {
   OPENAI_API_KEY?: string;
   EXPO_PUBLIC_OPENAI_API_KEY?: string;
-  GEMINI_API_KEY?: string;
-  EXPO_PUBLIC_GEMINI_API_KEY?: string;
   WHOOP_CLIENT_ID?: string;
   EXPO_PUBLIC_WHOOP_CLIENT_ID?: string;
   WHOOP_CLIENT_SECRET?: string;

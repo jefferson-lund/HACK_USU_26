@@ -43,8 +43,5 @@
     "typescript": "~5.9.2",
     "wrangler": "^3.78.0"
   },
-  "private": true,
-  "dependencies": {
-    "@google/generative-ai": "^0.24.1"
-  }
+  "private": true
 }

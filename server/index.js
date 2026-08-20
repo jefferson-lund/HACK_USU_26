@@ -7,21 +7,17 @@ require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 
 const express = require('express');
 const cors = require('cors');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const app = express();
 const port = process.env.PORT || 4000;
 
 // Prefer a server-side secret name, but fall back to the existing one if needed.
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || process.env.EXPO_PUBLIC_OPENAI_API_KEY;
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || process.env.EXPO_PUBLIC_GEMINI_API_KEY;
 const WHOOP_CLIENT_ID = process.env.WHOOP_CLIENT_ID || process.env.EXPO_PUBLIC_WHOOP_CLIENT_ID;
 const WHOOP_CLIENT_SECRET = process.env.WHOOP_CLIENT_SECRET || process.env.EXPO_PUBLIC_WHOOP_CLIENT_SECRET;
 const WHOOP_REDIRECT_URI = process.env.WHOOP_REDIRECT_URI || process.env.EXPO_PUBLIC_WHOOP_REDIRECT_URI;
 const WHOOP_TOKEN_URL = 'https://api.prod.whoop.com/oauth/oauth2/token';
 console.log('OpenAI key loaded:', !!OPENAI_API_KEY);
-console.log('Gemini key loaded:', !!GEMINI_API_KEY);
-console.log('Gemini key (EXPO_PUBLIC_GEMINI_API_KEY) present:', !!process.env.EXPO_PUBLIC_GEMINI_API_KEY);
 console.log('WHOOP client credentials loaded:', !!WHOOP_CLIENT_ID && !!WHOOP_CLIENT_SECRET);
 
 app.use(cors({ origin: '*', methods: ['GET', 'POST', 'OPTIONS'], allowedHeaders: ['Content-Type'] }));

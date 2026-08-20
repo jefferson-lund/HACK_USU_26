@@ -2,7 +2,7 @@
 
 This is the Cloudflare-specific path from the deployment options doc: the
 Expo web export goes to Cloudflare Pages as static assets, and the OpenAI/
-Gemini/WHOOP proxy that used to be `server/index.js` (Express, a long-running
+WHOOP proxy that used to be `server/index.js` (Express, a long-running
 Node process) is rewritten onto Cloudflare Pages Functions (`functions/`,
 Workers runtime) so it can live on the same edge, same origin, as the static
 site.
@@ -31,7 +31,7 @@ Two things about `server/index.js` don't survive a move to Workers as-is:
    instead, which lives in Cloudflare's infrastructure rather than the
    Worker's memory — see **Rate limiting** below.
 
-Everything else — the OpenAI/Gemini/WHOOP calls, the fallback hypothesis
+Everything else — the OpenAI/WHOOP calls, the fallback hypothesis
 text, the request/response JSON shapes — is a line-for-line port, not a
 redesign, so the client (`lib/llm.ts`, `lib/api/weeklyPlan.ts`,
 `lib/whoop.ts`) didn't need to change except for how it finds the API's base
@@ -58,7 +58,6 @@ documents for local dev, so the same values work in both places:
 
 ```bash
 npx wrangler pages secret put OPENAI_API_KEY
-npx wrangler pages secret put GEMINI_API_KEY
 npx wrangler pages secret put WHOOP_CLIENT_ID
 npx wrangler pages secret put WHOOP_CLIENT_SECRET
 npx wrangler pages secret put WHOOP_REDIRECT_URI

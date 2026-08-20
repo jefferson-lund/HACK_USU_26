@@ -2,7 +2,7 @@ import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 
 /**
- * Resolves the base URL for the backend API (the OpenAI/Gemini/WHOOP proxy).
+ * Resolves the base URL for the backend API (the OpenAI/WHOOP proxy).
  *
  * Priority:
  * 1. `EXPO_PUBLIC_API_BASE_URL` override -- used for local dev (points at the
