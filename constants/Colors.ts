@@ -18,8 +18,8 @@ export default {
   },
 };
 
-// Brand palette used by the Setup and Track screens (app/(tabs)/index.tsx,
-// app/(tabs)/track.tsx, and components/track/*). This is a separate,
+// Brand palette used by the Setup and Track screens (app/(v2)/index.tsx,
+// app/(v2)/track.tsx, and components/track/*). This is a separate,
 // app-specific palette from the generic light/dark theme above — those
 // screens don't participate in the dark/light mode system yet.
 export const Brand = {

@@ -7,7 +7,7 @@ const WHOOP_API_BASE = 'https://api.prod.whoop.com/developer/v1';
 const WHOOP_AUTH_URL = 'https://api.prod.whoop.com/oauth/oauth2/auth';
 
 // The redirect must be a URI the app itself owns so the OAuth deep-link
-// listener in app/(tabs)/track.tsx can catch it. Linking.createURL builds the
+// listener in the active track screen can catch it. Linking.createURL builds the
 // right scheme for both Expo Go and standalone builds (using app.json's
 // "scheme"), so that's the default; EXPO_PUBLIC_WHOOP_REDIRECT_URI remains
 // available as a manual override if it's ever needed.
