@@ -1,5 +1,5 @@
 import { useFocusEffect } from '@react-navigation/native';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
 
 import { Text, View } from '@/components/Themed';
@@ -33,6 +33,10 @@ export default function TrackScreen() {
   // returning user before their setup hydrates.
   const [isLoading, setIsLoading] = useState(true);
   const [analysisRunning, setAnalysisRunning] = useState(false);
+  // Two-step confirm for the destructive action. Deliberately not Alert.alert:
+  // that is unreliable under react-native-web, and this app is web-first.
+  const [confirmingClear, setConfirmingClear] = useState(false);
+  const confirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Safety wrapper to prevent rendering invalid text nodes
   const safeSetInsights = (value: string) => {
@@ -165,16 +169,42 @@ export default function TrackScreen() {
   };
 
   const handlePopulateDummyData = async () => {
-    const dummyData = generateDummyData(6, activities);
-    await populateDummyData(dummyData);
-    alert('Populated 6 months of dummy data!');
-    loadData();
+    try {
+      const dummyData = generateDummyData(6, activities);
+      await populateDummyData(dummyData);
+      await loadData();
+      alert(`Added ${dummyData.length} days of sample data.`);
+    } catch (error) {
+      console.error('Failed to populate sample data:', error);
+      alert('Could not add sample data. Please try again.');
+    }
   };
 
   const handleClearTestData = async () => {
-    await clearSyntheticData();
-    alert('Cleared test data!');
-    loadData();
+    // First tap arms, second tap deletes. Arming decays so the button can't
+    // sit primed indefinitely.
+    if (!confirmingClear) {
+      setConfirmingClear(true);
+      if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current);
+      confirmTimerRef.current = setTimeout(() => {
+        confirmTimerRef.current = null;
+        setConfirmingClear(false);
+      }, 4000);
+      return;
+    }
+
+    if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current);
+    confirmTimerRef.current = null;
+    setConfirmingClear(false);
+
+    try {
+      await clearSyntheticData();
+      await loadData();
+      alert('Sample data deleted. Your own check-ins were kept.');
+    } catch (error) {
+      console.error('Failed to clear sample data:', error);
+      alert('Could not delete the sample data. Please try again.');
+    }
   };
 
   const handleConnectWhoop = async () => {
@@ -401,7 +431,9 @@ export default function TrackScreen() {
             </TouchableOpacity>
 
             <TouchableOpacity style={[styles.testButton, styles.clearTestButton]} onPress={handleClearTestData}>
-              <Text style={styles.testButtonText}>Clear Test Data</Text>
+              <Text style={styles.testButtonText}>
+                {confirmingClear ? 'Tap again to confirm' : 'Delete Sample Data'}
+              </Text>
             </TouchableOpacity>
 
             <WhoopPanel
