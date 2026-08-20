@@ -10,6 +10,12 @@ interface WhoopPanelProps {
   isLoadingWhoop: boolean;
   onConnectWhoop: () => void;
   onFetchWhoopData: () => void;
+  /**
+   * False when EXPO_PUBLIC_WHOOP_CLIENT_ID is unset, which is the case in most
+   * builds. The OAuth button used to be shown unconditionally and always ended
+   * in a thrown error, so it looked broken rather than unconfigured.
+   */
+  whoopConfigured?: boolean;
 }
 
 // The "Whoop Integration" controls: paste-token field, Connect via OAuth
@@ -21,6 +27,7 @@ export default function WhoopPanel({
   isLoadingWhoop,
   onConnectWhoop,
   onFetchWhoopData,
+  whoopConfigured = true,
 }: WhoopPanelProps) {
   return (
     <View style={styles.whoopSection}>
@@ -36,11 +43,19 @@ export default function WhoopPanel({
       />
 
       <TouchableOpacity
-        style={styles.testButton}
+        style={[styles.testButton, !whoopConfigured && styles.testButtonDisabled]}
         onPress={onConnectWhoop}
+        disabled={!whoopConfigured}
       >
         <Text style={styles.testButtonText}>Connect via OAuth</Text>
       </TouchableOpacity>
+
+      {!whoopConfigured && (
+        <Text style={styles.note}>
+          OAuth isn&apos;t set up in this build. Paste an access token above to
+          fetch data.
+        </Text>
+      )}
 
       {whoopToken && (
         <TouchableOpacity
@@ -156,6 +171,12 @@ const styles = StyleSheet.create({
   },
   testButtonDisabled: {
     opacity: 0.6,
+  },
+  note: {
+    fontSize: 12,
+    lineHeight: 16,
+    textAlign: 'center',
+    color: Brand.inkSoft,
   },
   table: {
     minWidth: '100%',

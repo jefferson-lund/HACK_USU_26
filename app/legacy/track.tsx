@@ -3,9 +3,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
 
 import { Text, View } from '@/components/Themed';
-import { generateDummyData, generateInsightSummary, getRegressionAnalysis, enrichDataWithWhoop } from '@/lib/analysis';
+import { generateDummyData, generateInsightSummary, getRegressionAnalysis, enrichDataWithWhoop, type RegressionResult } from '@/lib/analysis';
 import { clearSyntheticData, getActivityLogs, getFullDataset, getOutcomeRating, getSetup, initDatabase, logActivity, logOutcomeRating, populateDummyData, saveWhoopToken, getWhoopToken, saveWhoopData, getWhoopData } from '@/lib/database';
-import { exchangeCodeForToken, formatWhoopDataForAnalysis, getWhoopAuthUrl, getWhoopCycles, getWhoopRecovery, getWhoopSleep } from '@/lib/whoop';
+import { exchangeCodeForToken, formatWhoopDataForAnalysis, getWhoopAuthUrl, getWhoopCycles, getWhoopRecovery, getWhoopSleep, isWhoopConfigured } from '@/lib/whoop';
 import { buildWeeklyPlanPayload, generateWeeklyPlan, type WeeklyPlan } from '@/lib/api/weeklyPlan';
 import ImpactChart from '@/components/ImpactChart';
 import BeakerIcon from '@/components/BeakerIcon';
@@ -51,7 +51,7 @@ export default function TrackScreen() {
     }
   };
   const [dataPreview, setDataPreview] = useState<Array<{ date: string; activities: Record<string, boolean>; outcome: number }>>([]);
-  const [regressionResults, setRegressionResults] = useState<any>(null);
+  const [regressionResults, setRegressionResults] = useState<RegressionResult | null>(null);
   const [scatterData, setScatterData] = useState<Array<{ x: number; y: number; predicted: number; date: string }>>([]);
   const [useLag, setUseLag] = useState(false);
   const [whoopData, setWhoopData] = useState<any[]>([]);
@@ -75,7 +75,11 @@ export default function TrackScreen() {
     }
   };
   const [validDataForPlan, setValidDataForPlan] = useState<Array<{ date: string; activities: Record<string, boolean>; outcome: number }>>([]);
-  const today = dateKey();
+  // Held in state and refreshed on focus rather than computed inline. As a
+  // plain const it was captured by toggleActivity/handleRatingSelect, so an
+  // app left open across midnight kept writing to yesterday's key until
+  // something happened to force a re-render.
+  const [today, setToday] = useState(() => dateKey());
 
   const loadData = useCallback(async () => {
     try {
@@ -95,6 +99,14 @@ export default function TrackScreen() {
       if (token) {
         setWhoopToken(token);
       }
+
+      // Restore previously fetched WHOOP rows. Only the token was being
+      // rehydrated, so the WHOOP table rendered empty after every reload even
+      // though the data was still in the database.
+      const savedWhoop = await getWhoopData();
+      if (savedWhoop.length > 0) {
+        setWhoopData(savedWhoop);
+      }
     } catch (error) {
       console.error('Failed to load track data:', error);
     } finally {
@@ -104,6 +116,7 @@ export default function TrackScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      setToday(dateKey());
       loadData();
     }, [loadData])
   );
@@ -468,6 +481,7 @@ export default function TrackScreen() {
             </TouchableOpacity>
 
             <WhoopPanel
+              whoopConfigured={isWhoopConfigured()}
               whoopToken={whoopToken}
               onChangeToken={setWhoopToken}
               isLoadingWhoop={isLoadingWhoop}
@@ -535,7 +549,7 @@ export default function TrackScreen() {
             )}
 
             {regressionResults && regressionResults.impacts.length > 0 && (
-              <ImpactChart impacts={regressionResults.impacts} />
+              <ImpactChart impacts={regressionResults.impacts} method={regressionResults.method} />
             )}
 
             {weeklyPlan && <WeeklyPlanCard plan={weeklyPlan} />}

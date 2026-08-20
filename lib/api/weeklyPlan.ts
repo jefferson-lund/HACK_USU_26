@@ -46,8 +46,11 @@ export function buildWeeklyPlanPayload(
     const completedCount = validData.filter(
       (d) => d.activities[activityName] === true
     ).length;
-    const weeks = Math.max(1, validData.length / 7);
-    const avgFreq = completedCount / weeks;
+    // Rate per 7 days, then capped at 7. `Math.max(1, len / 7)` treated any
+    // span under a week as exactly one week, so 3 activities over 3 days
+    // reported 3.0 per week instead of 7.0 -- understating a daily habit.
+    const days = Math.max(1, validData.length);
+    const avgFreq = Math.min(7, (completedCount / days) * 7);
 
     return {
       name: activityName,

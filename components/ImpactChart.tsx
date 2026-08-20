@@ -4,9 +4,16 @@ import { ActivityImpact } from '@/lib/analysis';
 
 interface ImpactChartProps {
   impacts: ActivityImpact[];
+  /**
+   * Which analysis produced these numbers. Pearson coefficients are a bounded
+   * correlation (-1..1); regression coefficients are unbounded outcome points.
+   * They cannot share a format, and this component used to render both as a
+   * percentage -- so a regression coefficient of 2.3 displayed as "+230%".
+   */
+  method?: 'multiple-regression' | 'pearson-correlation';
 }
 
-export default function ImpactChart({ impacts }: ImpactChartProps) {
+export default function ImpactChart({ impacts, method = 'multiple-regression' }: ImpactChartProps) {
   // Filter for significant impacts only
   const significantImpacts = impacts.filter(
     (impact) => Math.abs(impact.coefficient) > 0.1
@@ -30,24 +37,42 @@ export default function ImpactChart({ impacts }: ImpactChartProps) {
   // Find max absolute value for scaling
   const maxAbs = Math.max(...sortedImpacts.map((i) => Math.abs(i.coefficient)));
 
+  // Ramp from a pale tint of the hue up to the saturated colour.
+  //
+  // This previously interpolated a single channel from an unrelated base, so a
+  // weak positive rendered rgb(16, 16, 129) (navy) and a weak negative
+  // rgb(0, 68, 68) (dark teal) -- visually near-identical, while the legend
+  // promised green and red. For small coefficients you could not tell which
+  // direction an activity pushed.
+  const mix = (from: number, to: number, t: number) => Math.round(from + (to - from) * t);
+
+  const getIntensity = (coefficient: number) => Math.abs(coefficient) / maxAbs;
+
   const getColor = (coefficient: number) => {
-    const intensity = Math.abs(coefficient) / maxAbs;
-    if (coefficient > 0) {
-      // Green scale for positive
-      const green = Math.round(16 + intensity * (181 - 16)); // #10b981
-      return `rgb(16, ${green}, 129)`;
-    } else {
-      // Red scale for negative
-      const red = Math.round(239 * intensity); // #ef4444
-      return `rgb(${red}, 68, 68)`;
-    }
+    const t = getIntensity(coefficient);
+    return coefficient > 0
+      ? `rgb(${mix(226, 16, t)}, ${mix(245, 185, t)}, ${mix(237, 129, t)})`
+      : `rgb(${mix(254, 239, t)}, ${mix(226, 68, t)}, ${mix(226, 68, t)})`;
+  };
+
+  // White text is unreadable on the pale end of the ramp.
+  const getTextColor = (coefficient: number) =>
+    getIntensity(coefficient) > 0.55 ? '#ffffff' : '#1e293b';
+
+  const formatValue = (coefficient: number) => {
+    const sign = coefficient > 0 ? '+' : '';
+    return method === 'pearson-correlation'
+      ? `r ${sign}${coefficient.toFixed(2)}`
+      : `${sign}${coefficient.toFixed(2)} pts`;
   };
 
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Activity Impact Heatmap</Text>
       <Text style={styles.subtitle}>
-        Showing activities with |coefficient| &gt; 0.1
+        {method === 'pearson-correlation'
+          ? 'Correlation strength (r), for activities with |r| > 0.1'
+          : 'Effect on your rating, in points, for activities with |effect| > 0.1'}
       </Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
         <View style={styles.heatmap}>
@@ -80,8 +105,8 @@ export default function ImpactChart({ impacts }: ImpactChartProps) {
                   { backgroundColor: getColor(impact.coefficient) }
                 ]}
               >
-                <Text style={styles.heatText}>
-                  {impact.coefficient > 0 ? '+' : ''}{Math.round(impact.coefficient * 100)}%
+                <Text style={[styles.heatText, { color: getTextColor(impact.coefficient) }]}>
+                  {formatValue(impact.coefficient)}
                 </Text>
               </View>
             </View>

@@ -39,5 +39,9 @@ export function versionFromPath(pathname: string): SiteVersion {
 }
 
 export function tabFromPath(pathname: string): VersionTab {
-  return pathname.endsWith('/track') ? 'track' : 'setup';
+  // Trailing slash tolerated so this stays consistent with versionFromPath:
+  // Cloudflare Pages 308s /legacy to /legacy/, so a trailing slash is a real
+  // shape this can see, and it would otherwise drop the visitor on Setup.
+  const normalized = pathname.replace(/\/+$/, '');
+  return normalized.endsWith('/track') ? 'track' : 'setup';
 }
