@@ -30,7 +30,8 @@ export const initDatabase = async () => {
   db.execSync(`
     CREATE TABLE IF NOT EXISTS activities (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL UNIQUE
+      name TEXT NOT NULL UNIQUE,
+      is_active INTEGER NOT NULL DEFAULT 1
     );
   `);
 
@@ -71,6 +72,11 @@ export const initDatabase = async () => {
   } catch {
     // Column already exists.
   }
+  try {
+    db.execSync('ALTER TABLE activities ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1');
+  } catch {
+    // Column already exists.
+  }
 
   db.execSync(`
     CREATE TABLE IF NOT EXISTS whoop_token (
@@ -100,9 +106,18 @@ export const saveSetup = async (outcome: string, activities: string[]) => {
   const db = getDb();
 
   db.runSync('INSERT INTO setup (outcome) VALUES (?)', [outcome]);
-  
+
+  // Deactivate everything, then reactivate exactly the submitted list.
+  //
+  // This was INSERT OR IGNORE only, and getSetup read the whole activities
+  // table unfiltered -- so removing an activity was a silent no-op on native
+  // while it worked on web. The removed activity kept showing up in the Track
+  // checklist and in every subsequent regression. Rows are deactivated rather
+  // than deleted so historical activity_logs are preserved.
+  db.runSync('UPDATE activities SET is_active = 0');
   for (const activity of activities) {
     db.runSync('INSERT OR IGNORE INTO activities (name) VALUES (?)', [activity]);
+    db.runSync('UPDATE activities SET is_active = 1 WHERE name = ?', [activity]);
   }
 };
 
@@ -113,8 +128,13 @@ export const getSetup = async (): Promise<{ outcome: string; activities: string[
   
   if (!setup) return null;
 
-  const activities = db.getAllSync<{ name: string }>('SELECT name FROM activities');
-  
+  const activities = db.getAllSync<{ name: string }>(
+    'SELECT name FROM activities WHERE is_active = 1'
+  );
+
+  // Matches database.web.ts: a setup with no activities is not a usable setup.
+  if (activities.length === 0) return null;
+
   return {
     outcome: setup.outcome,
     activities: activities.map(a => a.name),
@@ -125,8 +145,13 @@ export const logActivity = async (activityName: string, completed: boolean, date
   const db = getDb();
 
   const activity = db.getFirstSync<{ id: number }>('SELECT id FROM activities WHERE name = ?', [activityName]);
-  
-  if (!activity) return;
+
+  // Previously `if (!activity) return;` -- a silent no-op. The caller shows an
+  // optimistic checkmark and only rolls it back on a throw, so a silent
+  // failure left the UI claiming a check-in that was never written.
+  if (!activity) {
+    throw new Error(`Cannot log unknown activity: ${activityName}`);
+  }
 
   db.runSync(
     'INSERT OR REPLACE INTO activity_logs (activity_id, completed, date, is_synthetic) VALUES (?, ?, ?, 0)',

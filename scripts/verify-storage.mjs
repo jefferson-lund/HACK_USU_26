@@ -42,5 +42,30 @@ const ds = await db.getFullDataset();
 check('sample rows are gone', ds.filter(r => r.outcome !== null).length === 1,
       `${ds.filter(r=>r.outcome!==null).length} rated rows remain`);
 
-console.log(fail ? `\n${fail} FAILED` : '\nreal check-ins survive sample generation + deletion');
+// --- removing an activity from the setup must actually remove it
+await db.saveSetup('sleep better', ['Gym']);
+const afterRemove = await db.getSetup();
+check('removing an activity removes it from getSetup',
+  afterRemove.activities.length === 1 && afterRemove.activities[0] === 'Gym',
+  JSON.stringify(afterRemove.activities));
+
+// --- generated names must not join the user's saved setup
+await db.saveSetup('sleep better', ['Gym', 'Water']);
+await db.populateDummyData(generateDummyData(1, ['Gym', 'Water', 'ZZZ Generated']));
+const afterDummy = await db.getSetup();
+check('sample data does not pollute the setup activity list',
+  !afterDummy.activities.includes('ZZZ Generated'), JSON.stringify(afterDummy.activities));
+check('but the analysis still sees generated activities',
+  (await db.getFullDataset()).some(r => 'ZZZ Generated' in r.activities));
+
+// --- synthetic tracking is per (date, activity), not per date
+const d2 = '2026-07-01';
+await db.populateDummyData([{ date: d2, activities: { Gym: true, Water: true }, outcome: 5 }]);
+await db.logActivity('Gym', false, d2);           // one real toggle on a synthetic day
+await db.clearSyntheticData();
+const day = await db.getActivityLogs(d2);
+check('a real toggle survives clearing that day\'s sample rows', day.Gym === false, JSON.stringify(day));
+check('the untouched sample row on the same day IS cleared', day.Water === undefined, JSON.stringify(day));
+
+console.log(fail ? `\n${fail} FAILED` : '\nall storage checks pass');
 process.exit(fail ? 1 : 0);
