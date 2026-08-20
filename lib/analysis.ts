@@ -32,6 +32,30 @@ export const generateDummyData = (months: number = 6, userActivities: string[] =
   const activities = userActivities.length > 0 ? userActivities : ['Gym', 'Water', 'Meditation', 'Late Coffee', 'Sleep 8hrs'];
   const today = new Date();
   
+  // One fixed impact per activity, assigned ONCE before the loop.
+  //
+  // This used to be drawn inside the per-day loop, which meant each activity's
+  // effect was re-randomised every day. Every activity ended up with the
+  // identical distribution (mean +0.25) and there was nothing to discover:
+  // successive runs reported wildly different coefficients for the same
+  // activity, and "Late Coffee" was as likely to look beneficial as "Gym".
+  // The demo path showed the analysis producing noise.
+  //
+  // Spread deterministically so there is always a clear best and worst, then
+  // shuffled so the ranking isn't just the order the user typed them in.
+  const impactByActivity: Record<string, number> = {};
+  const spread =
+    activities.length > 1
+      ? activities.map((_, i) => -1.2 + (i * 2.7) / (activities.length - 1))
+      : [1.5];
+  for (let i = spread.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [spread[i], spread[j]] = [spread[j], spread[i]];
+  }
+  activities.forEach((activity, i) => {
+    impactByActivity[activity] = spread[i];
+  });
+
   for (let i = months * 30; i >= 0; i--) {
     const date = new Date(today);
     date.setDate(date.getDate() - i);
@@ -47,8 +71,7 @@ export const generateDummyData = (months: number = 6, userActivities: string[] =
     let outcome = 5;
     activities.forEach((activity) => {
       if (activityRecord[activity]) {
-        // Random impact between -1 and +1.5
-        outcome += (Math.random() * 2.5) - 1;
+        outcome += impactByActivity[activity];
       }
     });
     
@@ -64,6 +87,15 @@ export const generateDummyData = (months: number = 6, userActivities: string[] =
   }
   
   return data;
+};
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** True when `next` is exactly one calendar day after `date` (both YYYY-MM-DD). */
+const isNextCalendarDay = (date: string, next: string): boolean => {
+  const a = new Date(`${date}T00:00:00Z`).getTime();
+  const b = new Date(`${next}T00:00:00Z`).getTime();
+  return Number.isFinite(a) && Number.isFinite(b) && Math.round((b - a) / DAY_MS) === 1;
 };
 
 const pearsonCorrelation = (x: number[], y: number[]): number => {
@@ -149,6 +181,11 @@ export const getRegressionAnalysis = (data: CheckIn[], useLag: boolean = false):
     const outcomeIndex = useLag ? i + 1 : i;
     
     if (useLag && outcomeIndex >= validData.length) continue;
+
+    // "Next-day" must mean the next CALENDAR day, not the next row. Without
+    // this, a gap in tracking silently pairs the last day before the gap with
+    // an outcome weeks later and still labels it next-day.
+    if (useLag && !isNextCalendarDay(current.date, validData[outcomeIndex].date)) continue;
     
     const x = activityNames.map(name => current.activities[name] ? 1 : 0);
     const y = validData[outcomeIndex].outcome;
@@ -212,7 +249,12 @@ export const getRegressionAnalysis = (data: CheckIn[], useLag: boolean = false):
   const yMean = Y.reduce((sum, y) => sum + y[0], 0) / Y.length;
   const ssTotal = Y.reduce((sum, y) => sum + Math.pow(y[0] - yMean, 2), 0);
   const ssResidual = Y.reduce((sum, y, i) => sum + Math.pow(y[0] - predictions[i], 2), 0);
-  const r2 = 1 - (ssResidual / ssTotal);
+  // ssTotal is 0 whenever every aligned outcome is identical (e.g. the user
+  // rated 7 every day). ssResidual is then ~1e-28 rather than exactly 0, so
+  // the division yielded Infinity and r2 became -Infinity -- which rendered
+  // verbatim as "R² = -Infinity" in the insights box and the scatter caption.
+  // With no variance to explain, 0 is the honest answer.
+  const r2 = ssTotal === 0 ? 0 : 1 - (ssResidual / ssTotal);
   
   return {
     impacts,
