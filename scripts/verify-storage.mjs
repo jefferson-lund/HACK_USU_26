@@ -42,6 +42,13 @@ const ds = await db.getFullDataset();
 check('sample rows are gone', ds.filter(r => r.outcome !== null).length === 1,
       `${ds.filter(r=>r.outcome!==null).length} rated rows remain`);
 
+// --- clearing a rating removes only that value, not the day's activity log
+await db.clearOutcomeRating(today);
+check('clearing a rating returns null', (await db.getOutcomeRating(today)) === null);
+check('clearing a rating keeps activity logs',
+  (await db.getActivityLogs(today)).Gym === true,
+  JSON.stringify(await db.getActivityLogs(today)));
+
 // --- removing an activity from the setup must actually remove it
 await db.saveSetup('sleep better', ['Gym']);
 const afterRemove = await db.getSetup();

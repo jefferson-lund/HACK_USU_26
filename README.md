@@ -1,192 +1,140 @@
-# AI-Powered Scientific Wellness Tracking
+# wohl
 
-> *"What if you could scientifically test how your daily habits affect your wellbeing?"*
+> A wellness self-experimentation tool for learning which daily activities help.
 
-A cross-platform mobile application that transforms wellness tracking from passive data collection into active experimentation. Built for Hack USU 2026.
+wohl lets someone choose an outcome, track candidate activities and a daily
+1–10 rating, then compare those activities with their results. It began as a
+Hack USU 2026 project and now ships a redesigned product alongside the original
+hackathon interface.
 
-## The Problem
+## Product flow
 
-Wellness apps collect data, but they don't help you understand *why* you feel the way you do. Users are left drowning in metrics without actionable insights about what actually moves the needle on their health.
+1. Define one outcome to improve.
+2. Add activities that might influence it.
+3. Review an AI-generated or local-template hypothesis.
+4. Complete a short daily check-in.
+5. Run same-day or next-day analysis when ready.
+6. Review plain-language signals, model fit, and an optional weekly plan.
 
-## The Solution
+The hypothesis endpoint degrades to a local template, so setup and saving still
+work when the development server is stopped.
 
-**Hypothesis** helps users become scientists of their own lives by:
-1. **Defining clear outcomes** - What do you want to improve? (energy, sleep, focus)
-2. **Identifying activities** - What daily habits might influence this? (exercise, caffeine, screen time)
-3. **Generating testable hypotheses** - AI creates clear, neutral hypotheses connecting your activities to outcomes
-4. **Tracking experiments** - Monitor your hypothesis over time with integrated wellness data
+## Two interfaces, one dataset
 
-## Key Features
+Both versions ship together:
 
-### AI-Powered Hypothesis Generation
-- Uses OpenAI GPT-4o-mini and Google Gemini to generate scientifically-structured hypotheses
-- Transforms vague wellness goals into testable predictions
-- Neutral, unbiased language encourages objective self-experimentation
+| Interface | Setup | Track |
+| --- | --- | --- |
+| Modern v2 | `/` | `/track` |
+| Frozen original | `/legacy` | `/legacy/track` |
 
-### WHOOP Integration
-- Connects with WHOOP fitness tracker for objective wellness metrics
-- Tracks sleep quality, recovery, strain, and heart rate variability
-- Correlates subjective activities with objective physiological data
+The version switch uses Expo Router navigation rather than a hard page load.
+This is required because web storage is currently in memory; reloading the page
+clears the browser tab's data. Both interfaces import the same database module,
+so data entered in one is immediately visible in the other.
 
-### Cross-Platform Design
-- Built with React Native and Expo for iOS, Android, and Web
-- Responsive UI with dark/light theme support
-- Consistent experience across all devices
+The modern interface is intentionally light-only. Its semantic design tokens
+live in `constants/theme.ts`, reusable controls in `components/ui/`, and
+product-specific visualizations in `components/v2/`. The original routes and
+their shared display components remain frozen as the before-picture.
 
-### Privacy-First Architecture
-- Backend proxy pattern keeps API keys secure
-- No user data stored on external servers
-- Local-first data storage
+## Stack
 
-## Technical Architecture
+- Expo SDK 54, React Native 0.81.5, React 19, TypeScript 5.9
+- Expo Router 6 with typed routes
+- React Native Web with Metro static export
+- `react-native-svg` for charts
+- SQLite on native; in-memory storage on web
+- Express for the local API and Cloudflare Pages Functions in production
+- OpenAI GPT-4o-mini with a deterministic template fallback
 
-### Frontend Stack
-- **Expo 54.0** - Cross-platform development framework
-- **React Native 0.81.5** - Native mobile components
-- **TypeScript 5.9.2** - Type-safe development
-- **Expo Router 6.0** - File-based navigation system
-- **React Native Reanimated** - Smooth animations
+## Route and component structure
 
-### Backend Stack
-- **Express 5.0.1** - Lightweight Node.js server
-- **OpenAI API** - GPT-4o-mini for hypothesis generation
-- **Google Gemini API** - Alternative AI model for redundancy
-- **CORS-enabled** - Secure cross-origin requests
-
-### Security Design
-- Environment variables for all sensitive credentials
-- Backend acts as API proxy to prevent client-side key exposure
-- Gitignored `.env` files with example templates
-- Clean git history with no exposed secrets
-
-## User Flow
-
-1. **Setup Screen** - User enters desired wellness outcome
-2. **Activity Input** - Add daily activities that might influence the outcome
-3. **AI Generation** - System generates a clear, testable hypothesis
-4. **Tracking Dashboard** - Monitor hypothesis over time with integrated data
-5. **Analysis** - Review correlations between activities and outcomes
-
-## Project Structure
-
-```
+```text
 app/
-├── (tabs)/
-│   ├── index.tsx          # Main hypothesis setup screen
-│   └── track.tsx          # Tracking dashboard: daily check-ins, WHOOP
-│                          # integration, regression analysis & weekly plan
-├── _layout.tsx            # Root layout with theme provider
-└── modal.tsx              # Modal screens
+├── (v2)/                 # / and /track — redesigned product
+├── legacy/               # /legacy and /legacy/track — frozen original
+├── _layout.tsx           # preference restore and splash gate
+└── +html.tsx             # pre-hydration version preference gate
 
 components/
-├── Themed.tsx             # Theme-aware UI components
-├── useColorScheme.ts      # Dark/light mode detection
-└── track/                 # Subcomponents that make up track.tsx
-    ├── WhoopPanel.tsx     # WHOOP token/OAuth controls + data table
-    ├── ScatterChart.tsx   # Predicted vs. actual outcomes scatter plot
-    ├── WeeklyPlanCard.tsx # Renders the generated 1-week plan
-    └── DataTable.tsx      # Recent check-in data sample table
+├── ui/                   # Text, Card, Button, Field, Section, Pill, DataGrid…
+├── v2/                   # Wordmark, insights, charts, weekly plan
+└── track/                # frozen original display components
+
+constants/
+├── Colors.ts             # original Brand palette
+└── theme.ts              # semantic v2 tokens
 
 lib/
-├── llm.ts                 # AI integration and API communication
-├── whoop.ts               # WHOOP API integration
-└── analysis.ts            # Data analysis utilities
+├── analysis.ts           # correlation/regression analysis
+├── database.web.ts       # browser-tab in-memory store
+├── database.native.ts    # SQLite store
+├── llm.ts                # hypothesis client and fallback
+├── api/weeklyPlan.ts     # weekly-plan client
+└── whoop.ts              # optional WHOOP integration
 
-server/
-└── index.js               # Express backend with API proxying
+server/                   # local Express API only
+functions/                # production Cloudflare Pages Functions
 ```
 
-## Getting Started
+## Local development
 
-### Prerequisites
-- Node.js v18+
-- npm or yarn
-- Expo CLI
-- API keys (OpenAI, Gemini, WHOOP)
-
-### Installation
+The pinned Node binary in the original development environment is v24.19.0.
+Any current Node release supported by Expo SDK 54 should work.
 
 ```bash
-# Clone repository
-git clone https://github.com/jefferson-lund/HACK_USU_26.git
-cd HACK_USU_26
-
-# Install dependencies
 npm install
 
-# Configure environment variables
-cp .env.example .env
-cp server/.env.example server/.env
+# Web app
+npm run web
 
-# Add your API keys to both .env files
+# Optional local API in a second terminal
+npm run server
 ```
 
-### Get API Keys
-- **OpenAI**: https://platform.openai.com/api-keys
-- **Gemini**: https://aistudio.google.com/app/apikey
-- **WHOOP**: https://developer.whoop.com/
+Without a local `.env`, hypothesis generation uses the template fallback. WHOOP
+controls remain hidden unless `EXPO_PUBLIC_WHOOP_CLIENT_ID` is configured.
 
-### Run the App
+## Verification
+
+There is no test runner or linter. These are the automated gates:
 
 ```bash
-# Terminal 1: Start backend server
-npm run server
-
-# Terminal 2: Start Expo app
-npm run web      # Web browser
-npm run android  # Android device/emulator
-npm run ios      # iOS device/simulator
+npm run typecheck
+npm run verify
 ```
 
-### Deploying as a demo webapp
+`verify` exercises regression alignment, lag direction, date handling, sample
+data quality, and the real web storage implementation.
 
-See [CLOUDFLARE.md](./CLOUDFLARE.md) for deploying the web build to
-Cloudflare Pages — the `server/index.js` proxy above is rewritten onto
-Cloudflare Pages Functions (`functions/`) so it can run on the same edge as
-the static site, with a Cloudflare-native rate limiter in place of the
-in-memory one (which doesn't survive Workers' per-request isolate model).
+Manual version checks:
 
-## Design Decisions
+1. Load `/`, `/track`, `/legacy`, and `/legacy/track`.
+2. Switch from `/track` to Original and confirm `/legacy/track` opens.
+3. Enter setup data in one version and confirm it appears in the other.
+4. Set the preference to Original and reload `/`; it should open `/legacy`.
+5. Load `/track` explicitly while Original is preferred; it must stay on `/track`.
 
-### Why Expo?
-- Rapid cross-platform development
-- Hot reload for fast iteration
-- Built-in routing and navigation
-- Easy deployment to app stores
+## Deployment
 
-### Why Backend Proxy?
-- Prevents API key exposure in client code
-- Enables rate limiting and request monitoring
-- Allows for future server-side data processing
-- Maintains security even if app is decompiled
+Production is a static Expo export on Cloudflare Pages:
 
-### Why Multiple AI Models?
-- Redundancy if one service is down
-- Cost optimization (Gemini is cheaper for some use cases)
-- Quality comparison between models
-- Flexibility for future model upgrades
+```bash
+npm run cf:build
+npm run cf:dev
+```
 
-## Future Enhancements
+The Cloudflare project auto-deploys from `main`. See
+[CLOUDFLARE.md](./CLOUDFLARE.md) for the Functions runtime, secrets, rate
+limiting, API base URL behavior, and deployment commands.
 
-- [ ] User authentication and cloud sync
-- [ ] Data visualization with charts and trends
-- [ ] Social features for sharing hypotheses
-- [ ] Integration with more wearables (Apple Health, Fitbit, Oura)
-- [ ] Statistical significance testing
-- [ ] Hypothesis templates library
-- [ ] Export data to CSV/PDF
-- [ ] Push notifications for tracking reminders
+## Current limitations
 
-## Contributing
+- Web data is per-tab and disappears on hard refresh.
+- Native storage changes require device testing; `expo-sqlite` is currently
+  newer than the version expected by Expo SDK 54.
+- WHOOP is unconfigured in current builds, and its callback route remains future
+  work.
 
-This project was built for Hack USU 2026. Contributions welcome!
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-
-## License
-
-Built by Jefferson, Cooper, and Cader for Hack USU 2026
-
----
+Built by Jefferson, Cooper, and Cader for Hack USU 2026.

@@ -185,6 +185,11 @@ export const logOutcomeRating = async (rating: number, date: string) => {
   );
 };
 
+export const clearOutcomeRating = async (date: string) => {
+  const db = getDb();
+  db.runSync('DELETE FROM outcome_ratings WHERE date = ?', [date]);
+};
+
 export const getOutcomeRating = async (date: string): Promise<number | null> => {
   const db = getDb();
 

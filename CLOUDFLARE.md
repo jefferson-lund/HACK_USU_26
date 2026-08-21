@@ -13,6 +13,23 @@ path at all. `functions/` is a separate, parallel implementation of the same
 small API surface, kept in sync by hand since Express (Node/CommonJS) and
 Pages Functions (Workers/ESM) don't share a runtime.
 
+## Versioned frontend routes
+
+The static export contains two interfaces that share one API and one client
+database module:
+
+- modern v2: `/` and `/track`
+- frozen original: `/legacy` and `/legacy/track`
+
+`app/(v2)/` is an Expo Router route group, so `(v2)` does not appear in the
+canonical URL. The export may also emit literal `dist/(v2)/*.html` artifacts;
+those are an Expo Router implementation detail, not public navigation targets.
+
+The saved version preference only redirects the ambiguous `/` route. Never add
+a blanket redirect for `/track` or `/legacy`, because explicit URLs must remain
+stable. The runtime version switch uses `router.replace` so web's in-memory
+storage survives the transition.
+
 ## Why a rewrite was necessary, not just a redeploy
 
 Two things about `server/index.js` don't survive a move to Workers as-is:

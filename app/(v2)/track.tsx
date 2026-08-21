@@ -1,222 +1,391 @@
 import { useFocusEffect } from '@react-navigation/native';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
-
-import { Text, View } from '@/components/Themed';
-import { generateDummyData, generateInsightSummary, getRegressionAnalysis, enrichDataWithWhoop, type RegressionResult } from '@/lib/analysis';
-import { clearSyntheticData, getActivityLogs, getFullDataset, getOutcomeRating, getSetup, initDatabase, logActivity, logOutcomeRating, populateDummyData, saveWhoopToken, getWhoopToken, saveWhoopData, getWhoopData } from '@/lib/database';
-import { exchangeCodeForToken, formatWhoopDataForAnalysis, getWhoopAuthUrl, getWhoopCycles, getWhoopRecovery, getWhoopSleep, isWhoopConfigured } from '@/lib/whoop';
-import { buildWeeklyPlanPayload, generateWeeklyPlan, type WeeklyPlan } from '@/lib/api/weeklyPlan';
-import ImpactChart from '@/components/ImpactChart';
-import BeakerIcon from '@/components/BeakerIcon';
-import LaserDinosaur from '@/components/LaserDinosaur';
-import WhoopPanel, { WhoopDataTable } from '@/components/track/WhoopPanel';
-import ScatterChart from '@/components/track/ScatterChart';
-import WeeklyPlanCard from '@/components/track/WeeklyPlanCard';
-import DataTable from '@/components/track/DataTable';
-import { Brand } from '@/constants/Colors';
-import { dateKey } from '@/lib/dateKey';
+import { router } from 'expo-router';
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Animated,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  View,
+  type LayoutChangeEvent,
+} from 'react-native';
+
+import BeakerIcon from '@/components/BeakerIcon';
+import Button from '@/components/ui/Button';
+import Callout from '@/components/ui/Callout';
+import Card from '@/components/ui/Card';
+import DataGrid, { type DataGridColumn } from '@/components/ui/DataGrid';
+import Field from '@/components/ui/Field';
+import Meter from '@/components/ui/Meter';
+import PillGroup from '@/components/ui/PillGroup';
+import Section from '@/components/ui/Section';
+import StatTile from '@/components/ui/StatTile';
+import Text from '@/components/ui/Text';
+import FitScatter, { type ScatterPoint } from '@/components/v2/FitScatter';
+import ImpactBars from '@/components/v2/ImpactBars';
+import InsightList from '@/components/v2/InsightList';
+import WeeklyPlan from '@/components/v2/WeeklyPlan';
+import Wordmark from '@/components/v2/Wordmark';
+import { color, layout, radius, space, type as typeScale } from '@/constants/theme';
+import {
+  enrichDataWithWhoop,
+  generateDummyData,
+  getRegressionAnalysis,
+  type CheckIn,
+  type RegressionResult,
+} from '@/lib/analysis';
+import { buildWeeklyPlanPayload, generateWeeklyPlan, type WeeklyPlan as WeeklyPlanData } from '@/lib/api/weeklyPlan';
+import {
+  clearOutcomeRating,
+  clearSyntheticData,
+  getActivityLogs,
+  getFullDataset,
+  getOutcomeRating,
+  getSetup,
+  getWhoopData,
+  getWhoopToken,
+  initDatabase,
+  logActivity,
+  logOutcomeRating,
+  populateDummyData,
+  saveWhoopData,
+  saveWhoopToken,
+} from '@/lib/database';
+import { dateKey } from '@/lib/dateKey';
+import {
+  exchangeCodeForToken,
+  formatWhoopDataForAnalysis,
+  getWhoopAuthUrl,
+  getWhoopCycles,
+  getWhoopRecovery,
+  getWhoopSleep,
+  isWhoopConfigured,
+} from '@/lib/whoop';
+
+type DatasetRow = Awaited<ReturnType<typeof getFullDataset>>[number];
+type WhoopRow = Awaited<ReturnType<typeof getWhoopData>>[number];
+
+type DashboardStats = {
+  daysLogged: number;
+  average: number | null;
+  delta: number | null;
+  streak: number;
+  sparkline: number[];
+};
+
+const EMPTY_STATS: DashboardStats = {
+  daysLogged: 0,
+  average: null,
+  delta: null,
+  streak: 0,
+  sparkline: [],
+};
+
+const RATING_OPTIONS = Array.from({ length: 10 }, (_, index) => ({
+  value: index + 1,
+  label: String(index + 1),
+  accessibilityLabel: `Rating ${index + 1} out of 10`,
+}));
+
+function average(values: number[]) {
+  if (values.length === 0) return null;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function previousDate(key: string) {
+  const date = new Date(`${key}T12:00:00`);
+  date.setDate(date.getDate() - 1);
+  return dateKey(date);
+}
+
+function currentStreak(ratedDates: Set<string>, today: string) {
+  let cursor = today;
+  if (!ratedDates.has(cursor)) cursor = previousDate(cursor);
+  let streak = 0;
+  while (ratedDates.has(cursor)) {
+    streak += 1;
+    cursor = previousDate(cursor);
+  }
+  return streak;
+}
+
+function deriveStats(dataset: DatasetRow[], today: string): DashboardStats {
+  const rated = dataset.filter((row): row is DatasetRow & { outcome: number } => row.outcome !== null);
+  const recent = rated.slice(0, 7).map((row) => row.outcome);
+  const prior = rated.slice(7, 14).map((row) => row.outcome);
+  const recentAverage = average(recent);
+  const priorAverage = average(prior);
+
+  return {
+    daysLogged: rated.length,
+    average: recentAverage,
+    delta:
+      recentAverage !== null && priorAverage !== null ? recentAverage - priorAverage : null,
+    streak: currentStreak(new Set(rated.map((row) => row.date)), today),
+    sparkline: rated.slice(0, 12).reverse().map((row) => row.outcome),
+  };
+}
+
+function displayDate(key: string) {
+  return new Date(`${key}T12:00:00`).toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+  });
+}
 
 export default function TrackScreen() {
+  const scrollRef = useRef<ScrollView>(null);
+  const resultsYRef = useRef(0);
+  const confirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const planGenRef = useRef(0);
+  const savedOpacity = useRef(new Animated.Value(0)).current;
+
+  const [isLoading, setIsLoading] = useState(true);
+  const [today, setToday] = useState(() => dateKey());
   const [activities, setActivities] = useState<string[]>([]);
   const [completed, setCompleted] = useState<Record<string, boolean>>({});
   const [outcome, setOutcome] = useState('');
   const [rating, setRating] = useState<number | null>(null);
-  const [showAnalytics, setShowAnalytics] = useState(false);
-  const [insights, setInsights] = useState('');
-  const [tapCount, setTapCount] = useState(0);
-  const [showDinos, setShowDinos] = useState(false);
-  // Distinct from `activities.length === 0`: without this, the "No activities
-  // yet" empty state doubles as the loading state and flashes at every
-  // returning user before their setup hydrates.
-  const [isLoading, setIsLoading] = useState(true);
-  const [analysisRunning, setAnalysisRunning] = useState(false);
-  // Two-step confirm for the destructive action. Deliberately not Alert.alert:
-  // that is unreliable under react-native-web, and this app is web-first.
-  const [confirmingClear, setConfirmingClear] = useState(false);
-  const confirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const dinoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Discards a slow plan response that a newer request has superseded.
-  const planGenRef = useRef(0);
+  const [dataset, setDataset] = useState<DatasetRow[]>([]);
+  const [stats, setStats] = useState<DashboardStats>(EMPTY_STATS);
+  const [savedMessage, setSavedMessage] = useState('Saved');
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
 
-  // Safety wrapper to prevent rendering invalid text nodes
-  const safeSetInsights = (value: string) => {
-    const cleaned = value?.trim();
-    if (!cleaned || cleaned === '.' || cleaned.length === 0) {
-      setInsights('');
-    } else {
-      setInsights(cleaned);
-    }
-  };
-  const [dataPreview, setDataPreview] = useState<Array<{ date: string; activities: Record<string, boolean>; outcome: number }>>([]);
+  const [analysisRunning, setAnalysisRunning] = useState(false);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [regressionResults, setRegressionResults] = useState<RegressionResult | null>(null);
-  const [scatterData, setScatterData] = useState<Array<{ x: number; y: number; predicted: number; date: string }>>([]);
+  const [scatterData, setScatterData] = useState<ScatterPoint[]>([]);
+  const [validDataForPlan, setValidDataForPlan] = useState<CheckIn[]>([]);
   const [useLag, setUseLag] = useState(false);
-  const [whoopData, setWhoopData] = useState<any[]>([]);
-  const [whoopToken, setWhoopToken] = useState<string>('');
-  const [isLoadingWhoop, setIsLoadingWhoop] = useState(false);
-  const [weeklyPlan, setWeeklyPlan] = useState<WeeklyPlan | null>(null);
+  const [resultsStale, setResultsStale] = useState(false);
+
+  const [weeklyPlan, setWeeklyPlan] = useState<WeeklyPlanData | null>(null);
   const [planLoading, setPlanLoading] = useState(false);
   const [planError, setPlanError] = useState<string | null>(null);
 
-  // Safety wrapper to prevent rendering invalid text nodes
-  const safeSetPlanError = (value: string | null) => {
-    if (!value) {
-      setPlanError(null);
-      return;
-    }
-    const cleaned = value.trim();
-    if (!cleaned || cleaned === '.' || cleaned.length < 2) {
-      setPlanError('An error occurred');
-    } else {
-      setPlanError(cleaned);
-    }
-  };
-  const [validDataForPlan, setValidDataForPlan] = useState<Array<{ date: string; activities: Record<string, boolean>; outcome: number }>>([]);
-  // Held in state and refreshed on focus rather than computed inline. As a
-  // plain const it was captured by toggleActivity/handleRatingSelect, so an
-  // app left open across midnight kept writing to yesterday's key until
-  // something happened to force a re-render.
-  const [today, setToday] = useState(() => dateKey());
+  const [confirmingClear, setConfirmingClear] = useState(false);
+  const [whoopData, setWhoopData] = useState<WhoopRow[]>([]);
+  const [whoopToken, setWhoopToken] = useState('');
+  const [isLoadingWhoop, setIsLoadingWhoop] = useState(false);
 
-  const loadData = useCallback(async () => {
+  const showSaved = useCallback(
+    (message = 'Saved') => {
+      setSavedMessage(message);
+      savedOpacity.stopAnimation();
+      savedOpacity.setValue(1);
+      Animated.sequence([
+        Animated.delay(900),
+        Animated.timing(savedOpacity, {
+          toValue: 0,
+          duration: 600,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    },
+    [savedOpacity],
+  );
+
+  const loadDashboard = useCallback(async (day: string) => {
     try {
       await initDatabase();
-      const setup = await getSetup();
-      if (setup) {
-        setActivities(setup.activities);
-        setOutcome(setup.outcome);
-        const logs = await getActivityLogs(today);
-        setCompleted(logs);
-        const savedRating = await getOutcomeRating(today);
-        setRating(savedRating);
-      }
+      const [setup, logs, savedRating, fullDataset, token, savedWhoop] = await Promise.all([
+        getSetup(),
+        getActivityLogs(day),
+        getOutcomeRating(day),
+        getFullDataset(),
+        getWhoopToken(),
+        getWhoopData(),
+      ]);
 
-      // Restore Whoop token
-      const token = await getWhoopToken();
-      if (token) {
-        setWhoopToken(token);
-      }
-
-      // Restore previously fetched WHOOP rows. Only the token was being
-      // rehydrated, so the WHOOP table rendered empty after every reload even
-      // though the data was still in the database.
-      const savedWhoop = await getWhoopData();
-      if (savedWhoop.length > 0) {
-        setWhoopData(savedWhoop);
-      }
+      setActivities(setup?.activities ?? []);
+      setOutcome(setup?.outcome ?? '');
+      setCompleted(logs);
+      setRating(savedRating);
+      setDataset(fullDataset);
+      setStats(deriveStats(fullDataset, day));
+      setWhoopToken(token ?? '');
+      setWhoopData(savedWhoop);
+      setActionError(null);
     } catch (error) {
       console.error('Failed to load track data:', error);
+      setActionError('Could not load your check-in data. Please try again.');
     } finally {
       setIsLoading(false);
     }
-  }, [today]);
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
-      setToday(dateKey());
-      loadData();
-    }, [loadData])
+      const focusedDay = dateKey();
+      setToday(focusedDay);
+      void loadDashboard(focusedDay);
+    }, [loadDashboard]),
   );
 
   useEffect(
     () => () => {
-      if (dinoTimerRef.current) clearTimeout(dinoTimerRef.current);
       if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current);
+      savedOpacity.stopAnimation();
     },
-    []
+    [savedOpacity],
   );
 
-  // useFocusEffect, not useEffect: only one screen can hold navigation focus,
-  // so this guarantees exactly one live listener even though both the v2 and
-  // the legacy Track screen register one. Two listeners would each call
-  // exchangeCodeForToken with the same single-use code, and the loser would
-  // surface a spurious "Failed to connect" error.
-  useFocusEffect(
-    useCallback(() => {
-      // Handle OAuth redirect
-      const handleDeepLink = async (event: { url: string }) => {
-        const { queryParams } = Linking.parse(event.url);
-        if (queryParams?.code) {
-          try {
-            const { access_token, refresh_token } = await exchangeCodeForToken(queryParams.code as string);
-            setWhoopToken(access_token);
-            await saveWhoopToken(access_token, refresh_token);
-            alert('Successfully connected to Whoop!');
-            // Automatically fetch data
-            await handleFetchWhoopDataWithToken(access_token);
-          } catch (error) {
-            console.error('OAuth error:', error);
-            alert('Failed to connect to Whoop');
-          }
-        }
-      };
+  const markResultsChanged = useCallback(() => {
+    if (regressionResults) setResultsStale(true);
+  }, [regressionResults]);
 
-      const subscription = Linking.addEventListener('url', handleDeepLink);
-      return () => subscription.remove();
-    }, [])
-  );
+  const reloadDataset = useCallback(async () => {
+    const fullDataset = await getFullDataset();
+    setDataset(fullDataset);
+    setStats(deriveStats(fullDataset, today));
+  }, [today]);
 
   const toggleActivity = async (activity: string) => {
-    const previous = completed[activity];
-    const newValue = !previous;
-    setCompleted(prev => ({ ...prev, [activity]: newValue }));
+    const previous = Boolean(completed[activity]);
+    const next = !previous;
+    setCompleted((current) => ({ ...current, [activity]: next }));
+    setActionError(null);
     try {
-      await logActivity(activity, newValue, today);
+      await logActivity(activity, next, today);
+      await reloadDataset();
+      markResultsChanged();
+      showSaved();
     } catch (error) {
-      // Put the checkbox back rather than leaving the UI claiming something
-      // was saved when it wasn't.
       console.error('Failed to log activity:', error);
-      setCompleted(prev => ({ ...prev, [activity]: previous }));
-      alert('Could not save that activity. Please try again.');
+      setCompleted((current) => ({ ...current, [activity]: previous }));
+      setActionError('Could not save that activity. Please try again.');
     }
   };
 
-  const handleRatingSelect = async (value: number) => {
+  const handleRatingSelect = async (value: number | null) => {
     const previous = rating;
     setRating(value);
+    setActionError(null);
     try {
-      await logOutcomeRating(value, today);
+      if (value === null) {
+        await clearOutcomeRating(today);
+      } else {
+        await logOutcomeRating(value, today);
+      }
+      await reloadDataset();
+      markResultsChanged();
+      showSaved(value === null ? 'Rating cleared' : 'Saved');
     } catch (error) {
       console.error('Failed to log rating:', error);
       setRating(previous);
-      alert('Could not save that rating. Please try again.');
-      return;
+      setActionError('Could not save that rating. Please try again.');
     }
+  };
 
-    // No auto-refresh of the weekly plan here.
-    //
-    // This used to fire handleGeneratePlan() on a 1s timer, but that builds its
-    // payload from validDataForPlan, which only runAnalysis() writes -- so the
-    // rating that triggered the refresh was never in the data it regenerated
-    // from. It also leaked the timer and could queue overlapping requests whose
-    // resolution order was undefined. Re-run the analysis to fold in new
-    // ratings.
+  const runAnalysis = useCallback(
+    async (lag: boolean) => {
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      const [fullDataset, savedWhoop] = await Promise.all([getFullDataset(), getWhoopData()]);
+      let validData: CheckIn[] = fullDataset
+        .filter((row): row is DatasetRow & { outcome: number } => row.outcome !== null)
+        .map((row) => ({
+          date: row.date,
+          activities: row.activities,
+          outcome: row.outcome,
+        }));
+
+      if (savedWhoop.length > 0) validData = enrichDataWithWhoop(validData, savedWhoop);
+
+      const results = getRegressionAnalysis(validData, lag);
+      setRegressionResults(results);
+      setValidDataForPlan(validData);
+      setScatterData(
+        results.predictions && results.actuals
+          ? results.actuals.map((actual, index) => ({
+              x: actual,
+              y: results.predictions?.[index] ?? 0,
+              predicted: results.predictions?.[index] ?? 0,
+              date: results.dates?.[index] ?? '',
+            }))
+          : [],
+      );
+      setWeeklyPlan(null);
+      setPlanError(null);
+      setResultsStale(false);
+    },
+    [],
+  );
+
+  const handleRunAnalysis = useCallback(
+    async (lag = useLag, scrollToResults = true) => {
+      if (analysisRunning) return;
+      setAnalysisRunning(true);
+      setAnalysisError(null);
+      try {
+        await runAnalysis(lag);
+        if (scrollToResults) {
+          requestAnimationFrame(() => {
+            scrollRef.current?.scrollTo({
+              y: Math.max(0, resultsYRef.current - space.lg),
+              animated: true,
+            });
+          });
+        }
+      } catch (error) {
+        console.error('Analysis failed:', error);
+        setAnalysisError('Could not run the analysis. Please try again.');
+      } finally {
+        setAnalysisRunning(false);
+      }
+    },
+    [analysisRunning, runAnalysis, useLag],
+  );
+
+  const handleLagChange = (value: 'same' | 'next' | null) => {
+    if (!value) return;
+    const nextLag = value === 'next';
+    setUseLag(nextLag);
+    if (regressionResults) void handleRunAnalysis(nextLag, false);
+  };
+
+  const handleGeneratePlan = async () => {
+    if (!regressionResults || !outcome || validDataForPlan.length === 0) return;
+    const generation = ++planGenRef.current;
+    setPlanLoading(true);
+    setPlanError(null);
+    try {
+      const payload = buildWeeklyPlanPayload(outcome, regressionResults, validDataForPlan);
+      const plan = await generateWeeklyPlan(payload);
+      if (generation === planGenRef.current) setWeeklyPlan(plan);
+    } catch (error) {
+      if (generation !== planGenRef.current) return;
+      console.error('[weeklyPlan] Error:', error);
+      setPlanError(error instanceof Error ? error.message : 'Could not generate a weekly plan.');
+    } finally {
+      if (generation === planGenRef.current) setPlanLoading(false);
+    }
   };
 
   const handlePopulateDummyData = async () => {
+    setActionError(null);
+    setActionNotice(null);
     try {
-      const dummyData = generateDummyData(6, activities);
-      const { inserted, skipped } = await populateDummyData(dummyData);
-      await loadData();
-      alert(
-        skipped > 0
-          ? `Added ${inserted} days of sample data. Skipped ${skipped} ${
-              skipped === 1 ? 'day' : 'days'
-            } you had already logged.`
-          : `Added ${inserted} days of sample data.`
+      const result = await populateDummyData(generateDummyData(6, activities));
+      await loadDashboard(today);
+      markResultsChanged();
+      setActionNotice(
+        result.skipped > 0
+          ? `Added ${result.inserted} days of sample data and kept ${result.skipped} existing ${
+              result.skipped === 1 ? 'day' : 'days'
+            }.`
+          : `Added ${result.inserted} days of sample data.`,
       );
     } catch (error) {
       console.error('Failed to populate sample data:', error);
-      alert('Could not add sample data. Please try again.');
+      setActionError('Could not add sample data. Please try again.');
     }
   };
 
   const handleClearTestData = async () => {
-    // First tap arms, second tap deletes. Arming decays so the button can't
-    // sit primed indefinitely.
     if (!confirmingClear) {
       setConfirmingClear(true);
       if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current);
@@ -230,586 +399,703 @@ export default function TrackScreen() {
     if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current);
     confirmTimerRef.current = null;
     setConfirmingClear(false);
-
+    setActionError(null);
     try {
       await clearSyntheticData();
-      await loadData();
-      alert('Sample data deleted. Your own check-ins were kept.');
+      await loadDashboard(today);
+      setRegressionResults(null);
+      setScatterData([]);
+      setWeeklyPlan(null);
+      setActionNotice('Sample data deleted. Your own check-ins were kept.');
     } catch (error) {
       console.error('Failed to clear sample data:', error);
-      alert('Could not delete the sample data. Please try again.');
+      setActionError('Could not delete the sample data. Please try again.');
     }
   };
 
-  const handleConnectWhoop = async () => {
-    try {
-      const authUrl = getWhoopAuthUrl();
-      await WebBrowser.openAuthSessionAsync(authUrl);
-    } catch (error) {
-      console.error('Error opening Whoop auth:', error);
-      // Surface the real reason -- most often that WHOOP isn't configured in
-      // this build -- rather than a generic failure the user can't act on.
-      alert(error instanceof Error ? error.message : 'Failed to open Whoop authorization');
-    }
-  };
-
-  const handleFetchWhoopDataWithToken = async (token: string) => {
+  const fetchWhoopDataWithToken = useCallback(async (token: string) => {
     setIsLoadingWhoop(true);
+    setActionError(null);
     try {
       const endDate = new Date().toISOString();
       const startDate = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString();
-
       const [cycles, recoveries, sleeps] = await Promise.all([
         getWhoopCycles(token, startDate, endDate),
         getWhoopRecovery(token, startDate, endDate),
         getWhoopSleep(token, startDate, endDate),
       ]);
-
-      const formattedData = formatWhoopDataForAnalysis(cycles, recoveries, sleeps);
-      setWhoopData(formattedData);
-
-      // Save to database
-      await saveWhoopData(formattedData);
-
-      alert(`Fetched and saved ${formattedData.length} days of Whoop data!`);
+      const formatted = formatWhoopDataForAnalysis(cycles, recoveries, sleeps);
+      await saveWhoopData(formatted);
+      setWhoopData(formatted);
+      setActionNotice(`Fetched and saved ${formatted.length} days of WHOOP data.`);
+      markResultsChanged();
     } catch (error) {
-      console.error('Error fetching Whoop data:', error);
-      alert('Failed to fetch Whoop data.');
+      console.error('Failed to fetch WHOOP data:', error);
+      setActionError('Could not fetch WHOOP data. Check your connection and token.');
     } finally {
       setIsLoadingWhoop(false);
+    }
+  }, [markResultsChanged]);
+
+  useFocusEffect(
+    useCallback(() => {
+      const handleDeepLink = async (event: { url: string }) => {
+        const { queryParams } = Linking.parse(event.url);
+        if (!queryParams?.code) return;
+        try {
+          const token = await exchangeCodeForToken(String(queryParams.code));
+          setWhoopToken(token.access_token);
+          await saveWhoopToken(token.access_token, token.refresh_token);
+          setActionNotice('WHOOP connected successfully.');
+          await fetchWhoopDataWithToken(token.access_token);
+        } catch (error) {
+          console.error('WHOOP OAuth failed:', error);
+          setActionError('Could not connect to WHOOP.');
+        }
+      };
+
+      const subscription = Linking.addEventListener('url', handleDeepLink);
+      return () => subscription.remove();
+    }, [fetchWhoopDataWithToken]),
+  );
+
+  const handleConnectWhoop = async () => {
+    try {
+      await WebBrowser.openAuthSessionAsync(getWhoopAuthUrl());
+    } catch (error) {
+      console.error('Failed to open WHOOP authorization:', error);
+      setActionError(
+        error instanceof Error ? error.message : 'Could not open WHOOP authorization.',
+      );
     }
   };
 
   const handleFetchWhoopData = async () => {
-    if (!whoopToken) {
-      alert('Please connect to Whoop first');
+    if (!whoopToken.trim()) {
+      setActionError('Enter or connect a WHOOP token first.');
       return;
     }
-    await handleFetchWhoopDataWithToken(whoopToken);
+    await saveWhoopToken(whoopToken.trim());
+    await fetchWhoopDataWithToken(whoopToken.trim());
   };
 
-  const handleRunAnalysis = async () => {
-    if (analysisRunning) return;
-    setAnalysisRunning(true);
-    try {
-      await runAnalysis();
-    } catch (error) {
-      // getFullDataset/getWhoopData throwing here used to be an unhandled
-      // rejection with no UI feedback at all.
-      console.error('Analysis failed:', error);
-      alert('Could not run the analysis. Please try again.');
-    } finally {
-      setAnalysisRunning(false);
-    }
-  };
+  const completedCount = activities.filter((activity) => completed[activity]).length;
+  const ratingDelta =
+    stats.delta === null
+      ? 'No prior week yet'
+      : `${stats.delta >= 0 ? '+' : ''}${stats.delta.toFixed(1)} vs prior week`;
+  const resultsReady = Boolean(regressionResults && regressionResults.impacts.length > 0);
 
-  const runAnalysis = async () => {
-    // Yield a frame first: getRegressionAnalysis runs ml-regression
-    // synchronously on up to ~180 rows, so without this the spinner never
-    // gets a chance to paint before the thread blocks.
-    await new Promise<void>(resolve => setTimeout(resolve, 0));
+  const checkInColumns = useMemo<DataGridColumn<DatasetRow>[]>(
+    () => [
+      { key: 'date', label: 'Date', width: 120, render: (row) => row.date },
+      {
+        key: 'rating',
+        label: 'Rating',
+        width: 90,
+        align: 'right',
+        render: (row) => row.outcome?.toString() ?? '—',
+      },
+      ...activities.map((activity) => ({
+        key: activity,
+        label: activity,
+        width: 150,
+        align: 'center' as const,
+        render: (row: DatasetRow) => (row.activities[activity] ? 'Yes' : '—'),
+      })),
+    ],
+    [activities],
+  );
 
-    const dataset = await getFullDataset();
+  const scatterColumns = useMemo<DataGridColumn<ScatterPoint>[]>(
+    () => [
+      { key: 'date', label: 'Outcome date', width: 130, render: (point) => point.date },
+      {
+        key: 'actual',
+        label: 'Actual',
+        width: 100,
+        align: 'right',
+        render: (point) => point.x.toFixed(1),
+      },
+      {
+        key: 'predicted',
+        label: 'Predicted',
+        width: 110,
+        align: 'right',
+        render: (point) => point.predicted.toFixed(1),
+      },
+    ],
+    [],
+  );
 
-    let validData = dataset
-      .filter(d => d.outcome !== null && d.outcome !== undefined)
-      .map(d => ({
-        date: d.date,
-        activities: d.activities,
-        outcome: d.outcome as number,
-      }));
+  const whoopColumns = useMemo<DataGridColumn<WhoopRow>[]>(
+    () => [
+      { key: 'date', label: 'Date', width: 120, render: (row) => row.date },
+      { key: 'recovery', label: 'Recovery', width: 110, render: (row) => row.recoveryScore?.toString() ?? '—' },
+      { key: 'strain', label: 'Strain', width: 90, render: (row) => row.strain?.toString() ?? '—' },
+      { key: 'sleep', label: 'Sleep', width: 90, render: (row) => row.sleepDuration?.toString() ?? '—' },
+      { key: 'hrv', label: 'HRV', width: 90, render: (row) => row.hrv?.toString() ?? '—' },
+    ],
+    [],
+  );
 
-    // Enrich with Whoop data if available
-    const whoopData = await getWhoopData();
-    if (whoopData.length > 0) {
-      validData = enrichDataWithWhoop(validData, whoopData);
-    }
-
-    setDataPreview(validData.slice(0, 10)); // Most recent 10 days (date DESC)
-
-    const results = getRegressionAnalysis(validData, useLag);
-    setRegressionResults(results);
-    setValidDataForPlan(validData);
-
-    // Prepare scatter plot data with dates.
-    //
-    // The date comes from results.dates, not validData[i]: the analysis sorts
-    // its input oldest-first and, under "Next-day", drops a row and shifts the
-    // pairing -- so indexing validData here labelled points with the wrong day.
-    if (results.predictions && results.actuals) {
-      const scatter = results.actuals.map((actual, i) => ({
-        x: actual,
-        y: results.predictions![i],
-        predicted: results.predictions![i],
-        date: results.dates?.[i] ?? '',
-      }));
-      setScatterData(scatter);
-    } else {
-      // The pearson path (fewer than 10 aligned rows) returns no predictions.
-      // Without this the previous run's points stayed on screen, recaptioned
-      // with the new run's R².
-      setScatterData([]);
-    }
-
-    const summary = generateInsightSummary(results);
-    safeSetInsights(summary);
-    setWeeklyPlan(null);
-    safeSetPlanError(null);
-  };
-
-  const handleGeneratePlan = async () => {
-    if (!regressionResults || !outcome || validDataForPlan.length === 0) return;
-    const generation = ++planGenRef.current;
-    setPlanLoading(true);
-    safeSetPlanError(null);
-    try {
-      const payload = buildWeeklyPlanPayload(outcome, regressionResults, validDataForPlan);
-      const plan = await generateWeeklyPlan(payload);
-      if (generation !== planGenRef.current) return;
-      setWeeklyPlan(plan);
-    } catch (err) {
-      if (generation !== planGenRef.current) return;
-      console.error('[weeklyPlan] Error:', err);
-      const errorMsg = err instanceof Error ? err.message : 'Failed to generate plan';
-      safeSetPlanError(errorMsg);
-    } finally {
-      if (generation === planGenRef.current) setPlanLoading(false);
-    }
-  };
-
-  const handleBrandTap = () => {
-    const newCount = tapCount + 1;
-    setTapCount(newCount);
-    if (newCount >= 5) {
-      setShowDinos(true);
-      if (dinoTimerRef.current) clearTimeout(dinoTimerRef.current);
-      dinoTimerRef.current = setTimeout(() => {
-        dinoTimerRef.current = null;
-        setShowDinos(false);
-        setTapCount(0);
-      }, 3500);
-    }
+  const recordResultsPosition = (event: LayoutChangeEvent) => {
+    resultsYRef.current = event.nativeEvent.layout.y;
   };
 
   if (isLoading) {
     return (
-      <View style={styles.container}>
-        <ActivityIndicator size="large" color={Brand.blue} />
+      <View style={styles.loadingScreen}>
+        <View style={styles.loadingContent}>
+          <Wordmark size="sm" align="left" />
+          <View style={styles.loadingHeading} />
+          <Card>
+            <View style={styles.loadingCard}>
+              <View style={styles.loadingLine} />
+              <View style={styles.loadingField} />
+              <View style={styles.loadingField} />
+            </View>
+          </Card>
+        </View>
       </View>
     );
   }
 
   if (activities.length === 0) {
     return (
-      <View style={styles.container}>
-        <Text style={styles.title}>No activities yet</Text>
-        <Text style={styles.subtitle}>Go to the Setup tab to create your goal and activities.</Text>
+      <View style={styles.emptyScreen}>
+        <View style={styles.emptyContent}>
+          <Wordmark />
+          <Card style={styles.emptyCard}>
+            <Text variant="h1">Create your experiment first</Text>
+            <Text variant="body" tone="soft">
+              Add an outcome and a few daily activities before you begin tracking.
+            </Text>
+            {actionError ? <Callout tone="danger">{actionError}</Callout> : null}
+            <Button variant="hero" onPress={() => router.push('/')}>
+              Go to setup
+            </Button>
+          </Card>
+        </View>
       </View>
     );
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      {showDinos && (
-        <>
-          <LaserDinosaur key="dino1" />
-          <LaserDinosaur key="dino2" />
-          <LaserDinosaur key="dino3" />
-        </>
-      )}
-      <TouchableOpacity onPress={handleBrandTap} activeOpacity={0.8}>
-        <Text style={styles.brandTitle}>wohl</Text>
-      </TouchableOpacity>
-      <Text style={styles.title}>Track Your Day</Text>
-      <Text style={styles.subtitle}>{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</Text>
-
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Today's Activities</Text>
-        <View style={styles.list}>
-          {activities.map((activity) => (
-            <TouchableOpacity
-              key={activity}
-              style={styles.item}
-              onPress={() => toggleActivity(activity)}
-            >
-              <View style={[styles.checkbox, completed[activity] && styles.checkboxChecked]}>
-                {completed[activity] && <Text style={styles.checkmark}>✓</Text>}
-              </View>
-              <Text style={styles.activityText}>{activity}</Text>
-            </TouchableOpacity>
-          ))}
+    <ScrollView
+      ref={scrollRef}
+      contentContainerStyle={styles.scrollContent}
+      keyboardShouldPersistTaps="handled">
+      <View style={styles.content}>
+        <View style={styles.header}>
+          <Wordmark size="sm" align="left" />
+          <View style={styles.headerCopy}>
+            <Text variant="h1">Your dashboard</Text>
+            <Text variant="body" tone="soft">
+              {displayDate(today)}
+            </Text>
+          </View>
+          <View style={styles.compactStats}>
+            <Text variant="caption" tone="soft">
+              {stats.daysLogged} days logged
+            </Text>
+            <Text variant="caption" tone="soft">
+              {stats.streak} day streak
+            </Text>
+          </View>
         </View>
-      </View>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>How are you feeling today?</Text>
-        <Text style={styles.helper}>Rate your progress toward: {outcome}</Text>
-        <View style={styles.ratingContainer}>
-          {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((value) => (
-            <TouchableOpacity
-              key={value}
-              style={[styles.ratingButton, rating === value && styles.ratingButtonSelected]}
-              onPress={() => handleRatingSelect(value)}
-            >
-              <Text style={[styles.ratingText, rating === value && styles.ratingTextSelected]}>
-                {value}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      </View>
+        {actionError ? <Callout tone="danger">{actionError}</Callout> : null}
+        {actionNotice ? <Callout tone="success">{actionNotice}</Callout> : null}
 
-      <View style={styles.section}>
-        <TouchableOpacity
-          style={styles.analyticsToggle}
-          onPress={() => setShowAnalytics(!showAnalytics)}
-        >
-          <Text style={styles.sectionTitle}>🧪 Testing & Analytics</Text>
-          <Text style={styles.toggleIcon}>{showAnalytics ? '▼' : '▶'}</Text>
-        </TouchableOpacity>
-
-        {showAnalytics && (
-          <View style={styles.analyticsContent}>
-            <TouchableOpacity style={styles.testButton} onPress={handlePopulateDummyData}>
-              <Text style={styles.testButtonText}>Generate 6 Months Dummy Data</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={[styles.testButton, styles.clearTestButton]} onPress={handleClearTestData}>
-              <Text style={styles.testButtonText}>
-                {confirmingClear ? 'Tap again to confirm' : 'Delete Sample Data'}
-              </Text>
-            </TouchableOpacity>
-
-            <WhoopPanel
-              whoopConfigured={isWhoopConfigured()}
-              whoopToken={whoopToken}
-              onChangeToken={setWhoopToken}
-              isLoadingWhoop={isLoadingWhoop}
-              onConnectWhoop={handleConnectWhoop}
-              onFetchWhoopData={handleFetchWhoopData}
+        <Section title="Today’s check-in" description={`Tracking progress toward: ${outcome}`}>
+          <Card style={styles.checkInCard}>
+            <Meter
+              value={completedCount}
+              max={activities.length}
+              label="Activities completed"
             />
-
-            <Text style={styles.helper}>Compare activities against:</Text>
-            <View style={styles.lagToggleContainer}>
-              <TouchableOpacity
-                style={[styles.lagToggleButton, !useLag && styles.lagToggleButtonSelected]}
-                onPress={() => setUseLag(false)}
-              >
-                <Text style={[styles.lagToggleText, !useLag && styles.lagToggleTextSelected]}>
-                  Same-day
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.lagToggleButton, useLag && styles.lagToggleButtonSelected]}
-                onPress={() => setUseLag(true)}
-              >
-                <Text style={[styles.lagToggleText, useLag && styles.lagToggleTextSelected]}>
-                  Next-day
-                </Text>
-              </TouchableOpacity>
+            <View style={styles.activityList}>
+              {activities.map((activity) => {
+                const checked = Boolean(completed[activity]);
+                return (
+                  <Pressable
+                    key={activity}
+                    onPress={() => void toggleActivity(activity)}
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked }}
+                    style={({ pressed }) => [
+                      styles.activityRow,
+                      checked && styles.activityRowChecked,
+                      pressed && styles.rowPressed,
+                    ]}>
+                    <View style={[styles.checkbox, checked && styles.checkboxChecked]}>
+                      {checked ? (
+                        <Text variant="small" tone="inverse" weight="bold">
+                          ✓
+                        </Text>
+                      ) : null}
+                    </View>
+                    <Text
+                      variant="body"
+                      weight="medium"
+                      style={checked ? styles.completedActivity : undefined}>
+                      {activity}
+                    </Text>
+                  </Pressable>
+                );
+              })}
             </View>
 
-            <TouchableOpacity
-              style={[styles.analyzeButton, analysisRunning && styles.buttonDisabled]}
-              onPress={handleRunAnalysis}
-              disabled={analysisRunning}
-            >
-              {analysisRunning ? (
-                <ActivityIndicator size="small" color={Brand.white} />
-              ) : (
-                <BeakerIcon size={28} color={Brand.white} />
-              )}
-              <Text style={styles.analyzeButtonText}>
-                {analysisRunning ? 'Analyzing...' : 'Run Analysis'}
-              </Text>
-            </TouchableOpacity>
-
-            {regressionResults && regressionResults.impacts.length > 0 && (
-              <TouchableOpacity
-                style={[styles.testButton, planLoading && styles.buttonDisabled]}
-                onPress={handleGeneratePlan}
-                disabled={planLoading}
-              >
-                <Text style={styles.testButtonText}>
-                  {planLoading ? 'Generating...' : 'Generate 1-Week Plan'}
+            <View style={styles.ratingBlock}>
+              <View style={styles.ratingHeader}>
+                <View style={styles.ratingCopy}>
+                  <Text variant="h2">How are you feeling?</Text>
+                  <Text variant="small" tone="soft">
+                    Rate today’s progress from rough to great.
+                  </Text>
+                </View>
+                <Animated.Text style={[styles.savedText, { opacity: savedOpacity }]}>
+                  {savedMessage}
+                </Animated.Text>
+              </View>
+              <PillGroup
+                options={RATING_OPTIONS}
+                value={rating}
+                onChange={handleRatingSelect}
+                label="Daily outcome rating"
+                allowClear
+                compact
+              />
+              <View style={styles.ratingAnchors}>
+                <Text variant="caption" tone="soft">
+                  Rough
                 </Text>
-              </TouchableOpacity>
-            )}
-
-            {planError && planError.trim() && planError.trim() !== '.' && (
-              <View style={styles.errorBox}>
-                <Text style={styles.errorText}>{planError}</Text>
+                <Text variant="caption" tone="soft">
+                  Great
+                </Text>
               </View>
-            )}
+              {rating !== null ? (
+                <Text variant="caption" tone="soft">
+                  Press the selected number again to clear today’s rating.
+                </Text>
+              ) : null}
+            </View>
+          </Card>
+        </Section>
 
-            {insights && insights.trim() && insights.trim() !== '.' && (
-              <View style={styles.insightsBox}>
-                <Text style={styles.insightsText}>{insights}</Text>
-              </View>
-            )}
-
-            {regressionResults && regressionResults.impacts.length > 0 && (
-              <ImpactChart impacts={regressionResults.impacts} method={regressionResults.method} />
-            )}
-
-            {weeklyPlan && <WeeklyPlanCard plan={weeklyPlan} />}
-
-            {regressionResults && scatterData.length > 0 && (
-              <ScatterChart r2={regressionResults.r2} data={scatterData} />
-            )}
-
-            <DataTable data={dataPreview} />
+        <Section title="Headline stats" description="A quick view from your saved check-ins.">
+          <View style={styles.statGrid}>
+            <StatTile
+              hero
+              label="7-day average"
+              value={stats.average === null ? '—' : stats.average.toFixed(1)}
+              detail={ratingDelta}
+              sparkline={stats.sparkline}
+            />
+            <StatTile label="Days logged" value={String(stats.daysLogged)} />
+            <StatTile label="Current streak" value={`${stats.streak} ${stats.streak === 1 ? 'day' : 'days'}`} />
           </View>
-        )}
-      </View>
+        </Section>
 
-      <WhoopDataTable whoopData={whoopData} />
+        <View onLayout={recordResultsPosition}>
+          <Section
+            title="What’s working"
+            description={
+              useLag
+                ? 'Next-day compares each activity with tomorrow’s rating.'
+                : 'Same-day compares each activity with that day’s rating.'
+            }
+            action={
+              <PillGroup
+                options={[
+                  { value: 'same', label: 'Same-day' },
+                  { value: 'next', label: 'Next-day' },
+                ]}
+                value={useLag ? 'next' : 'same'}
+                onChange={handleLagChange}
+                label="Analysis timing"
+                compact
+              />
+            }>
+          {analysisError ? <Callout tone="danger">{analysisError}</Callout> : null}
+          {resultsStale ? (
+            <Callout title="Your data changed">
+              Refresh the results to include your latest check-in.
+            </Callout>
+          ) : null}
+
+          {!regressionResults ? (
+            <Card style={styles.analysisEmpty}>
+              {stats.daysLogged < 10 ? (
+                <>
+                  <Meter value={stats.daysLogged} max={10} label="Days toward a full model" />
+                  <Text variant="body" tone="soft">
+                    A full model needs 10 days. Until then, wohl shows simple correlations as early hints.
+                  </Text>
+                </>
+              ) : (
+                <>
+                  <View style={styles.beaker}>
+                    <BeakerIcon size={34} color={color.primaryStrong} />
+                  </View>
+                  <Text variant="h2">Your data is ready</Text>
+                  <Text variant="body" tone="soft" align="center">
+                    Run the analysis when you’re ready to look for patterns.
+                  </Text>
+                </>
+              )}
+              <Button
+                variant="hero"
+                fullWidth
+                loading={analysisRunning}
+                icon={<BeakerIcon size={24} color={color.textOnColor} />}
+                onPress={() => void handleRunAnalysis()}>
+                {stats.daysLogged < 10 ? 'See early signals' : 'Run analysis'}
+              </Button>
+            </Card>
+          ) : (
+            <Card busy={analysisRunning} style={styles.resultsCard}>
+              <View style={styles.resultsHeader}>
+                <View style={styles.resultsHeaderCopy}>
+                  <Text variant="h2">Your strongest signals</Text>
+                  <Text variant="small" tone="soft">
+                    Based on {regressionResults.sampleSize} aligned check-ins ·{' '}
+                    {regressionResults.method === 'multiple-regression'
+                      ? 'full model'
+                      : 'early correlations'}
+                  </Text>
+                </View>
+                <Button
+                  variant="ghost"
+                  size="small"
+                  loading={analysisRunning}
+                  onPress={() => void handleRunAnalysis()}>
+                  {resultsStale ? 'Refresh results' : 'Run again'}
+                </Button>
+              </View>
+
+              {resultsReady ? (
+                <>
+                  <InsightList results={regressionResults} />
+                  <View style={styles.resultBlock}>
+                    <Text variant="h2">Impact overview</Text>
+                    <ImpactBars
+                      impacts={regressionResults.impacts}
+                      method={regressionResults.method}
+                    />
+                  </View>
+                  {scatterData.length > 0 ? (
+                    <View style={styles.resultBlock}>
+                      <Text variant="h2">Predicted vs. actual</Text>
+                      <FitScatter r2={regressionResults.r2} data={scatterData} />
+                    </View>
+                  ) : null}
+                </>
+              ) : (
+                <Callout tone="neutral">
+                  There are not enough aligned check-ins for this timing mode yet.
+                </Callout>
+              )}
+            </Card>
+          )}
+          </Section>
+        </View>
+
+        <Section
+          title="Your week"
+          description="Turn your strongest signals into a practical seven-day plan.">
+          {planError ? <Callout tone="danger">{planError}</Callout> : null}
+          {weeklyPlan ? <WeeklyPlan plan={weeklyPlan} /> : null}
+          <Button
+            variant={weeklyPlan ? 'secondary' : 'primary'}
+            loading={planLoading}
+            disabled={!regressionResults || validDataForPlan.length === 0}
+            onPress={() => void handleGeneratePlan()}>
+            {weeklyPlan ? 'Regenerate plan' : 'Generate a one-week plan'}
+          </Button>
+          {!regressionResults ? (
+            <Text variant="small" tone="soft">
+              Run the analysis first to create a plan from your data.
+            </Text>
+          ) : null}
+        </Section>
+
+        <Section
+          title="Data"
+          description="Inspect recent check-ins and the rows used by the model."
+          collapsible
+          defaultExpanded={false}>
+          {scatterData.length > 0 ? (
+            <View style={styles.dataBlock}>
+              <Text variant="h2">Model rows</Text>
+              <DataGrid
+                columns={scatterColumns}
+                rows={scatterData}
+                getRowKey={(point, index) => `${point.date}-${index}`}
+              />
+            </View>
+          ) : null}
+          <View style={styles.dataBlock}>
+            <Text variant="h2">Recent check-ins</Text>
+            <DataGrid
+              columns={checkInColumns}
+              rows={dataset.slice(0, 10)}
+              getRowKey={(row) => row.date}
+              emptyMessage="Complete your first check-in to see it here."
+            />
+          </View>
+        </Section>
+
+        <Section
+          title="Developer tools"
+          description="Sample data and optional integrations."
+          collapsible
+          defaultExpanded={false}
+          quiet>
+          <Card tone="quiet" style={styles.devTools}>
+            <Text variant="small" tone="soft">
+              Sample data is synthetic and can be removed without deleting your own check-ins.
+            </Text>
+            <View style={styles.devActions}>
+              <Button variant="quiet" onPress={() => void handlePopulateDummyData()}>
+                Generate sample data
+              </Button>
+              <Button variant="danger" onPress={() => void handleClearTestData()}>
+                {confirmingClear ? 'Tap again to confirm' : 'Delete sample data'}
+              </Button>
+            </View>
+
+            {isWhoopConfigured() ? (
+              <View style={styles.whoopBlock}>
+                <Text variant="h2">WHOOP</Text>
+                <Field
+                  label="Access token"
+                  value={whoopToken}
+                  onChangeText={setWhoopToken}
+                  placeholder="Paste a WHOOP access token"
+                  secureTextEntry
+                />
+                <View style={styles.devActions}>
+                  <Button variant="secondary" onPress={() => void handleConnectWhoop()}>
+                    Connect WHOOP
+                  </Button>
+                  <Button
+                    variant="primary"
+                    loading={isLoadingWhoop}
+                    onPress={() => void handleFetchWhoopData()}>
+                    Fetch data
+                  </Button>
+                </View>
+                <DataGrid
+                  columns={whoopColumns}
+                  rows={whoopData}
+                  getRowKey={(row) => row.date}
+                  emptyMessage="No WHOOP data fetched yet."
+                />
+              </View>
+            ) : null}
+          </Card>
+        </Section>
+      </View>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flexGrow: 1,
-    paddingHorizontal: 24,
-    paddingVertical: 40,
-    gap: 32,
-    backgroundColor: Brand.white,
-    alignItems: 'center',
-    maxWidth: 700,
-    width: '100%',
-    alignSelf: 'center',
-  },
-  brandTitle: {
-    fontSize: 36,
-    fontWeight: '700',
-    color: Brand.orange,
-    letterSpacing: -1,
-    marginBottom: -8,
-    textAlign: 'center',
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: '700',
-    textAlign: 'center',
-    color: Brand.ink,
-    letterSpacing: -0.5,
-  },
-  subtitle: {
-    fontSize: 15,
-    textAlign: 'center',
-    color: Brand.inkSoft,
-    marginTop: -8,
-  },
-  section: {
-    gap: 16,
-    width: '100%',
-  },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    textAlign: 'center',
-    color: Brand.ink,
-  },
-  helper: {
-    fontSize: 12,
-    opacity: 0.8,
-  },
-  list: {
-    gap: 12,
-  },
-  item: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    padding: 16,
-    borderRadius: 10,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(150,150,150,0.5)',
-  },
-  checkbox: {
-    width: 24,
-    height: 24,
-    borderRadius: 6,
-    borderWidth: 2,
-    borderColor: Brand.accentBlue,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  checkboxChecked: {
-    backgroundColor: Brand.accentBlue,
-  },
-  checkmark: {
-    color: Brand.white,
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  activityText: {
-    fontSize: 16,
+  loadingScreen: {
     flex: 1,
+    backgroundColor: color.background,
+    padding: layout.gutter,
   },
-  ratingContainer: {
+  loadingContent: {
+    width: '100%',
+    maxWidth: layout.maxWidth,
+    alignSelf: 'center',
+    gap: layout.sectionGap,
+    paddingTop: space.xxl,
+  },
+  loadingHeading: {
+    width: '48%',
+    height: 34,
+    borderRadius: radius.sm,
+    backgroundColor: color.border,
+  },
+  loadingCard: {
+    gap: space.md,
+  },
+  loadingLine: {
+    width: '65%',
+    height: 20,
+    borderRadius: radius.sm,
+    backgroundColor: color.border,
+  },
+  loadingField: {
+    height: 52,
+    borderRadius: radius.md,
+    backgroundColor: color.surfaceMuted,
+  },
+  emptyScreen: {
+    flex: 1,
+    backgroundColor: color.background,
+    paddingHorizontal: layout.gutter,
+    paddingTop: space.xxl,
+  },
+  emptyContent: {
+    width: '100%',
+    maxWidth: layout.maxWidth,
+    alignSelf: 'center',
+    gap: layout.sectionGap,
+  },
+  emptyCard: {
+    gap: space.md,
+    alignItems: 'flex-start',
+  },
+  scrollContent: {
+    flexGrow: 1,
+    paddingHorizontal: layout.gutter,
+    paddingTop: space.xxl,
+    paddingBottom: space.xxl + layout.tabBarHeight,
+    backgroundColor: color.background,
+  },
+  content: {
+    width: '100%',
+    maxWidth: layout.maxWidth,
+    alignSelf: 'center',
+    gap: layout.sectionGap,
+  },
+  header: {
+    gap: space.sm,
+  },
+  headerCopy: {
+    gap: space.xxs,
+  },
+  compactStats: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
-    marginTop: 8,
+    gap: space.md,
   },
-  ratingButton: {
-    width: 50,
-    height: 50,
-    borderRadius: 10,
-    borderWidth: 2,
-    borderColor: Brand.accentBlue,
+  checkInCard: {
+    gap: space.lg,
+  },
+  activityList: {
+    gap: space.xs,
+  },
+  activityRow: {
+    minHeight: layout.minTouch,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    paddingHorizontal: space.sm,
+    paddingVertical: space.xs,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: color.border,
+    backgroundColor: color.surface,
+  },
+  activityRowChecked: {
+    backgroundColor: color.surfaceInfo,
+    borderColor: color.primary,
+  },
+  rowPressed: {
+    opacity: 0.75,
+  },
+  checkbox: {
+    width: 28,
+    height: 28,
     alignItems: 'center',
     justifyContent: 'center',
+    borderRadius: radius.sm,
+    borderWidth: 2,
+    borderColor: color.primaryStrong,
   },
-  ratingButtonSelected: {
-    backgroundColor: Brand.accentBlue,
+  checkboxChecked: {
+    backgroundColor: color.primaryStrong,
   },
-  ratingText: {
-    fontSize: 18,
+  completedActivity: {
+    textDecorationLine: 'line-through',
+    color: color.textSoft,
+  },
+  ratingBlock: {
+    gap: space.sm,
+    paddingTop: space.md,
+    borderTopWidth: 1,
+    borderTopColor: color.border,
+  },
+  ratingHeader: {
+    minHeight: layout.minTouch,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: space.sm,
+  },
+  ratingCopy: {
+    flex: 1,
+    gap: space.xxs,
+  },
+  savedText: {
+    ...typeScale.small,
     fontWeight: '600',
-    color: Brand.accentBlue,
+    color: color.successText,
   },
-  ratingTextSelected: {
-    color: Brand.white,
-  },
-  analyticsToggle: {
+  ratingAnchors: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    paddingHorizontal: space.xs,
   },
-  toggleIcon: {
-    fontSize: 16,
-  },
-  analyticsContent: {
-    gap: 12,
-    marginTop: 8,
-  },
-  testButton: {
-    padding: 14,
-    borderRadius: 12,
-    backgroundColor: Brand.success,
-    alignItems: 'center',
-    shadowColor: Brand.shadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 2,
-  },
-  testButtonText: {
-    color: Brand.white,
-    fontWeight: '700',
-    fontSize: 14,
-    letterSpacing: 0.5,
-  },
-  clearTestButton: {
-    backgroundColor: Brand.danger,
-  },
-  buttonDisabled: {
-    opacity: 0.6,
-  },
-  lagToggleContainer: {
+  statGrid: {
     flexDirection: 'row',
-    gap: 8,
-    justifyContent: 'center',
+    flexWrap: 'wrap',
+    gap: space.sm,
   },
-  lagToggleButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 20,
-    borderWidth: 2,
-    borderColor: Brand.accentBlue,
-  },
-  lagToggleButtonSelected: {
-    backgroundColor: Brand.accentBlue,
-  },
-  lagToggleText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: Brand.accentBlue,
-  },
-  lagToggleTextSelected: {
-    color: Brand.white,
-  },
-  errorBox: {
-    padding: 12,
-    borderRadius: 8,
-    backgroundColor: 'rgba(239, 68, 68, 0.15)',
-    borderWidth: 1,
-    borderColor: 'rgba(239, 68, 68, 0.3)',
-  },
-  errorText: {
-    color: Brand.danger,
-    fontSize: 14,
-  },
-  insightsBox: {
-    marginTop: 12,
-    padding: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(37, 99, 235, 0.2)',
-    backgroundColor: 'rgba(239, 246, 255, 0.5)',
-    shadowColor: Brand.shadow,
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  insightsText: {
-    fontSize: 14,
-    lineHeight: 22,
-    color: Brand.slateMed,
-  },
-  barContainer: {
-    marginBottom: 12,
-  },
-  barLabel: {
-    fontSize: 12,
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  barWrapper: {
-    flexDirection: 'row',
+  analysisEmpty: {
     alignItems: 'center',
-    gap: 8,
+    gap: space.md,
   },
-  bar: {
-    height: 24,
-    borderRadius: 4,
-    minWidth: 2,
-  },
-  barPositive: {
-    backgroundColor: Brand.successLight,
-  },
-  barNegative: {
-    backgroundColor: Brand.dangerLight,
-  },
-  barValue: {
-    fontSize: 11,
-    fontWeight: '600',
-    minWidth: 50,
-  },
-  analyzeButton: {
-    flexDirection: 'row',
+  beaker: {
+    width: 60,
+    height: 60,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 12,
-    paddingHorizontal: 32,
-    paddingVertical: 20,
-    borderRadius: 16,
-    backgroundColor: Brand.blue,
-    shadowColor: Brand.blue,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
-    elevation: 6,
-    marginVertical: 8,
+    borderRadius: radius.pill,
+    backgroundColor: color.surfaceInfo,
   },
-  analyzeButtonText: {
-    color: Brand.white,
-    fontWeight: '700',
-    fontSize: 18,
-    letterSpacing: 0.5,
+  resultsCard: {
+    gap: space.lg,
+  },
+  resultsHeader: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: space.sm,
+  },
+  resultsHeaderCopy: {
+    flex: 1,
+    minWidth: 220,
+    gap: space.xxs,
+  },
+  resultBlock: {
+    gap: space.md,
+    paddingTop: space.md,
+    borderTopWidth: 1,
+    borderTopColor: color.border,
+  },
+  dataBlock: {
+    gap: space.sm,
+  },
+  devTools: {
+    gap: space.md,
+  },
+  devActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: space.sm,
+  },
+  whoopBlock: {
+    gap: space.md,
+    paddingTop: space.md,
+    borderTopWidth: 1,
+    borderTopColor: color.border,
   },
 });

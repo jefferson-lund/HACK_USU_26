@@ -1,41 +1,120 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
-  TextInput,
-  TouchableOpacity,
+  View,
 } from 'react-native';
 
-import { Text, View } from '@/components/Themed';
+import Button from '@/components/ui/Button';
+import Callout from '@/components/ui/Callout';
+import Card from '@/components/ui/Card';
+import Field from '@/components/ui/Field';
+import Pill from '@/components/ui/Pill';
+import Text from '@/components/ui/Text';
+import Wordmark from '@/components/v2/Wordmark';
+import { color, layout, radius, space } from '@/constants/theme';
 import { getSetup, initDatabase, saveSetup } from '@/lib/database';
 import { generateHypothesis } from '@/lib/llm';
-import LaserDinosaur from '@/components/LaserDinosaur';
-import { Brand } from '@/constants/Colors';
 
 const HYPOTHESIS_DEBOUNCE_MS = 600;
+const OUTCOME_EXAMPLES = ['more energy', 'better sleep', 'feel less anxious'];
+const ACTIVITY_STARTERS = ['morning walk', 'exercise', 'no caffeine after 2pm', 'meditate'];
+
+type Phase = 'loading' | 'form' | 'summary';
+type Step = 'outcome' | 'activities' | 'review';
+
+const STEPS: Array<{ key: Step; label: string }> = [
+  { key: 'outcome', label: 'Outcome' },
+  { key: 'activities', label: 'Activities' },
+  { key: 'review', label: 'Review' },
+];
+
+function normalizeActivity(value: string) {
+  return value.trim().replace(/\s+/g, ' ');
+}
+
+function Progress({
+  step,
+  onStepPress,
+}: {
+  step: Step;
+  onStepPress: (step: Step) => void;
+}) {
+  const activeIndex = STEPS.findIndex((item) => item.key === step);
+
+  return (
+    <View
+      style={styles.progress}
+      accessibilityRole="progressbar"
+      accessibilityLabel="Setup progress"
+      accessibilityValue={{ min: 1, max: STEPS.length, now: activeIndex + 1 }}>
+      <View style={styles.progressBars}>
+        {STEPS.map((item, index) => (
+          <Pressable
+            key={item.key}
+            disabled={index >= activeIndex}
+            onPress={() => onStepPress(item.key)}
+            accessibilityRole={index < activeIndex ? 'button' : undefined}
+            accessibilityLabel={`${item.label}, step ${index + 1} of ${STEPS.length}`}
+            style={styles.progressTarget}>
+            <View
+              style={[
+                styles.progressBar,
+                index <= activeIndex && styles.progressBarActive,
+              ]}
+            />
+          </Pressable>
+        ))}
+      </View>
+      <Text variant="caption" tone="soft" align="center">
+        Step {activeIndex + 1} of {STEPS.length} · {STEPS[activeIndex].label}
+      </Text>
+    </View>
+  );
+}
+
+function ActivityCloud({
+  activities,
+  onRemove,
+}: {
+  activities: string[];
+  onRemove?: (activity: string) => void;
+}) {
+  return (
+    <View style={styles.chipCloud}>
+      {activities.map((activity) => (
+        <Pill
+          key={activity}
+          removable={Boolean(onRemove)}
+          accessibilityLabel={onRemove ? `Remove ${activity}` : activity}
+          onPress={onRemove ? () => onRemove(activity) : undefined}>
+          {activity}
+        </Pill>
+      ))}
+    </View>
+  );
+}
 
 export default function TodaySetupScreen() {
+  const [phase, setPhase] = useState<Phase>('loading');
+  const [step, setStep] = useState<Step>('outcome');
   const [outcome, setOutcome] = useState('');
   const [newActivity, setNewActivity] = useState('');
   const [activities, setActivities] = useState<string[]>([]);
-  const [isSetupComplete, setIsSetupComplete] = useState(false);
+  const [hasSavedSetup, setHasSavedSetup] = useState(false);
+  const [outcomeError, setOutcomeError] = useState<string | null>(null);
+  const [activityFeedback, setActivityFeedback] = useState<string | null>(null);
   const [hypothesis, setHypothesis] = useState('');
   const [hypothesisFromAI, setHypothesisFromAI] = useState(false);
   const [hypothesisLoading, setHypothesisLoading] = useState(false);
-  const [tapCount, setTapCount] = useState(0);
-  const [showDinos, setShowDinos] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
   const [hypothesisError, setHypothesisError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Guards against a slow earlier request resolving after a newer one and
-  // overwriting the fresher hypothesis.
   const hypothesisGenRef = useRef(0);
-  const dinoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const loadSetup = async () => {
@@ -45,33 +124,27 @@ export default function TodaySetupScreen() {
         if (setup) {
           setOutcome(setup.outcome);
           setActivities(setup.activities);
-          setIsSetupComplete(true);
+          setHasSavedSetup(true);
+          setPhase('summary');
+        } else {
+          setPhase('form');
         }
       } catch (error) {
         console.error('Failed to load setup:', error);
-      } finally {
-        setIsLoading(false);
+        setPhase('form');
+        setSaveError('Could not load your saved setup. You can still create a new one.');
       }
     };
-    loadSetup();
+    void loadSetup();
   }, []);
-
-  // The easter-egg timer outlived the component before this.
-  useEffect(
-    () => () => {
-      if (dinoTimerRef.current) clearTimeout(dinoTimerRef.current);
-    },
-    []
-  );
 
   const fetchHypothesis = useCallback(async (outcomeText: string, activityList: string[]) => {
     if (!outcomeText.trim() || activityList.length === 0) {
-      // Bump the generation so any in-flight response is discarded rather
-      // than landing after the field was cleared.
       hypothesisGenRef.current += 1;
       setHypothesis('');
       setHypothesisFromAI(false);
       setHypothesisError(null);
+      setHypothesisLoading(false);
       return;
     }
 
@@ -79,21 +152,18 @@ export default function TodaySetupScreen() {
     setHypothesisLoading(true);
     setHypothesisError(null);
     try {
-      const { hypothesis: text, usedFallback } = await generateHypothesis(
-        outcomeText.trim(),
-        activityList,
-      );
+      const result = await generateHypothesis(outcomeText.trim(), activityList);
       if (generation !== hypothesisGenRef.current) return;
-      setHypothesis(text);
-      setHypothesisFromAI(!usedFallback);
+      setHypothesis(result.hypothesis);
+      setHypothesisFromAI(!result.usedFallback);
     } catch (error) {
       if (generation !== hypothesisGenRef.current) return;
-      // This used to be a bare `catch {}` that silently blanked the box, so a
-      // failure was indistinguishable from having typed nothing.
       console.error('Failed to generate hypothesis:', error);
       setHypothesis('');
       setHypothesisFromAI(false);
-      setHypothesisError('Could not draft a hypothesis right now. You can still save your setup.');
+      setHypothesisError(
+        'Could not draft a hypothesis right now. You can still save your setup.',
+      );
     } finally {
       if (generation === hypothesisGenRef.current) setHypothesisLoading(false);
     }
@@ -101,61 +171,93 @@ export default function TodaySetupScreen() {
 
   useEffect(() => {
     if (!outcome.trim() || activities.length === 0) {
-      // Bump the generation so a request already in flight is discarded.
-      // Without this, clearing the outcome blanked the box and then the stale
-      // response put the old hypothesis straight back -- and left
-      // hypothesisLoading true, pinning the "Generating..." spinner.
       hypothesisGenRef.current += 1;
       setHypothesis('');
       setHypothesisFromAI(false);
       setHypothesisError(null);
       setHypothesisLoading(false);
-      if (debounceRef.current) {
-        clearTimeout(debounceRef.current);
-        debounceRef.current = null;
-      }
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      debounceRef.current = null;
       return;
     }
+
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
       debounceRef.current = null;
-      fetchHypothesis(outcome, activities);
+      void fetchHypothesis(outcome, activities);
     }, HYPOTHESIS_DEBOUNCE_MS);
+
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [outcome, activities, fetchHypothesis]);
+  }, [activities, fetchHypothesis, outcome]);
 
-  const handleAddActivity = () => {
-    const raw = newActivity.trim();
-    if (!raw) return;
-    const parts = raw.split(',').map((s) => s.trim()).filter(Boolean);
-    if (parts.length === 0) return;
-    setActivities((prev) => {
-      const next = [...prev];
-      for (const part of parts) {
-        if (part && !next.includes(part)) next.push(part);
+  const addActivities = (values: string[]) => {
+    const normalized = values.map(normalizeActivity).filter(Boolean);
+    if (normalized.length === 0) {
+      setActivityFeedback('Enter an activity before adding it.');
+      return;
+    }
+
+    const existing = new Set(activities.map((item) => normalizeActivity(item).toLocaleLowerCase()));
+    const additions: string[] = [];
+    let duplicateCount = 0;
+
+    for (const item of normalized) {
+      const key = item.toLocaleLowerCase();
+      if (existing.has(key)) {
+        duplicateCount += 1;
+      } else {
+        existing.add(key);
+        additions.push(item);
       }
-      return next;
-    });
+    }
+
+    if (additions.length > 0) setActivities((current) => [...current, ...additions]);
     setNewActivity('');
+    setActivityFeedback(
+      duplicateCount > 0
+        ? `${duplicateCount === 1 ? 'That activity is' : 'Some activities are'} already in your list.`
+        : null,
+    );
   };
 
-  const handleRemoveActivity = (activity: string) => {
-    setActivities((prev) => prev.filter((a) => a !== activity));
+  const handleAddActivity = () => addActivities(newActivity.split(','));
+
+  const removeActivity = (activity: string) => {
+    setActivities((current) => current.filter((item) => item !== activity));
+    setActivityFeedback(null);
+  };
+
+  const goFromOutcome = () => {
+    if (!outcome.trim()) {
+      setOutcomeError('Describe the result you want to improve.');
+      return;
+    }
+    setOutcomeError(null);
+    setStep('activities');
+  };
+
+  const goFromActivities = () => {
+    if (activities.length === 0) {
+      setActivityFeedback('Add at least one activity to test.');
+      return;
+    }
+    setActivityFeedback(null);
+    setStep('review');
   };
 
   const canSave = outcome.trim().length > 0 && activities.length > 0;
 
-  const handleSaveSetup = async () => {
+  const handleSave = async () => {
     if (!canSave || saving) return;
     setSaving(true);
     setSaveError(null);
     try {
-      // Trimmed on save: the hypothesis already used the trimmed value, so an
-      // untrimmed outcome was stored and displayed inconsistently.
       await saveSetup(outcome.trim(), activities);
-      setIsSetupComplete(true);
+      setOutcome(outcome.trim());
+      setHasSavedSetup(true);
+      setPhase('summary');
     } catch (error) {
       console.error('Failed to save setup:', error);
       setSaveError('Could not save your setup. Please try again.');
@@ -164,402 +266,398 @@ export default function TodaySetupScreen() {
     }
   };
 
-  const handleBrandTap = () => {
-    const newCount = tapCount + 1;
-    setTapCount(newCount);
-    if (newCount >= 5) {
-      setShowDinos(true);
-      if (dinoTimerRef.current) clearTimeout(dinoTimerRef.current);
-      dinoTimerRef.current = setTimeout(() => {
-        dinoTimerRef.current = null;
-        setShowDinos(false);
-        setTapCount(0);
-      }, 3500);
+  const handleCancelReview = () => {
+    if (hasSavedSetup) {
+      setPhase('summary');
+    } else {
+      setStep('activities');
     }
+    setSaveError(null);
   };
 
-  if (isLoading) {
+  const content = (() => {
+    if (phase === 'loading') {
+      return (
+        <View style={styles.content}>
+          <Wordmark />
+          <View style={styles.skeletonHeading} />
+          <Card>
+            <View style={styles.skeletonCard}>
+              <View style={styles.skeletonLineWide} />
+              <View style={styles.skeletonLine} />
+              <View style={styles.skeletonField} />
+            </View>
+          </Card>
+        </View>
+      );
+    }
+
+    if (phase === 'summary') {
+      return (
+        <View style={styles.content}>
+          <Wordmark />
+          <View style={styles.pageHeading}>
+            <Text variant="h1">Your experiment</Text>
+            <Text variant="body" tone="soft">
+              Your daily check-in is ready. Adjust the setup whenever your focus changes.
+            </Text>
+          </View>
+
+          {saveError ? <Callout tone="danger">{saveError}</Callout> : null}
+
+          <Card style={styles.summaryCard}>
+            <View style={styles.summaryBlock}>
+              <Text variant="caption" tone="soft" weight="bold">
+                OUTCOME
+              </Text>
+              <Text variant="h2">{outcome}</Text>
+            </View>
+            <View style={styles.summaryBlock}>
+              <Text variant="caption" tone="soft" weight="bold">
+                YOUR HYPOTHESIS
+              </Text>
+              <Card tone="info" busy={hypothesisLoading}>
+                <Text variant="body" weight="medium">
+                  {hypothesis || 'Your hypothesis will appear here once it is ready.'}
+                </Text>
+                {!hypothesisLoading && hypothesis ? (
+                  <Text variant="caption" tone={hypothesisFromAI ? 'primary' : 'soft'}>
+                    {hypothesisFromAI ? 'AI generated' : 'Template'}
+                  </Text>
+                ) : null}
+              </Card>
+              {hypothesisError ? <Callout tone="danger">{hypothesisError}</Callout> : null}
+            </View>
+            <View style={styles.summaryBlock}>
+              <Text variant="caption" tone="soft" weight="bold">
+                ACTIVITIES
+              </Text>
+              <ActivityCloud activities={activities} />
+            </View>
+          </Card>
+
+          <View style={styles.actions}>
+            <Button
+              variant="secondary"
+              onPress={() => {
+                setStep('review');
+                setPhase('form');
+              }}>
+              Edit setup
+            </Button>
+            <Button
+              variant="ghost"
+              loading={hypothesisLoading}
+              onPress={() => void fetchHypothesis(outcome, activities)}>
+              Regenerate hypothesis
+            </Button>
+          </View>
+        </View>
+      );
+    }
+
     return (
-      <View style={styles.container}>
-        <ActivityIndicator size="large" color={Brand.blue} />
+      <View style={styles.content}>
+        <Wordmark />
+        <Progress step={step} onStepPress={setStep} />
+
+        {step === 'outcome' ? (
+          <View style={styles.stepContent}>
+            <View style={styles.pageHeading}>
+              <Text variant="h1">What do you want to improve?</Text>
+              <Text variant="body" tone="soft">
+                Choose one outcome you can rate each day. Specific and personal works best.
+              </Text>
+            </View>
+            <Field
+              label="Your outcome"
+              value={outcome}
+              onChangeText={(value) => {
+                setOutcome(value);
+                if (value.trim()) setOutcomeError(null);
+              }}
+              placeholder="I want to…"
+              error={outcomeError}
+              autoFocus
+              returnKeyType="next"
+              onSubmitEditing={goFromOutcome}
+            />
+            <View style={styles.suggestions}>
+              <Text variant="small" tone="soft">
+                Try an example
+              </Text>
+              <View style={styles.chipCloud}>
+                {OUTCOME_EXAMPLES.map((example) => (
+                  <Pill
+                    key={example}
+                    onPress={() => {
+                      setOutcome(example);
+                      setOutcomeError(null);
+                    }}>
+                    {example}
+                  </Pill>
+                ))}
+              </View>
+            </View>
+            <Button variant="hero" fullWidth onPress={goFromOutcome}>
+              Next
+            </Button>
+          </View>
+        ) : null}
+
+        {step === 'activities' ? (
+          <View style={styles.stepContent}>
+            <View style={styles.pageHeading}>
+              <Text variant="h1">What might influence it?</Text>
+              <Text variant="body" tone="soft">
+                Add habits or choices you can mark complete each day.
+              </Text>
+            </View>
+            <Field
+              label="Activities to test"
+              value={newActivity}
+              onChangeText={(value) => {
+                setNewActivity(value);
+                if (value.trim()) setActivityFeedback(null);
+              }}
+              placeholder="e.g. morning walk, no caffeine after 2pm"
+              hint={
+                activityFeedback ??
+                'Separate activities with commas to add multiple chips at once.'
+              }
+              error={activityFeedback}
+              returnKeyType="done"
+              onSubmitEditing={handleAddActivity}
+              trailing={
+                <Pressable
+                  onPress={handleAddActivity}
+                  accessibilityRole="button"
+                  accessibilityLabel="Add activities"
+                  style={({ pressed }) => [styles.addButton, pressed && styles.pressed]}>
+                  <Text variant="h2" tone="inverse" weight="bold">
+                    +
+                  </Text>
+                </Pressable>
+              }
+            />
+
+            {activities.length > 0 ? (
+              <ActivityCloud activities={activities} onRemove={removeActivity} />
+            ) : null}
+
+            <View style={styles.suggestions}>
+              <Text variant="small" tone="soft">
+                Starter ideas
+              </Text>
+              <View style={styles.chipCloud}>
+                {ACTIVITY_STARTERS.map((starter) => (
+                  <Pill key={starter} onPress={() => addActivities([starter])}>
+                    {starter}
+                  </Pill>
+                ))}
+              </View>
+            </View>
+
+            <View style={styles.actions}>
+              <Button variant="secondary" onPress={() => setStep('outcome')}>
+                Back
+              </Button>
+              <Button variant="hero" onPress={goFromActivities}>
+                Review
+              </Button>
+            </View>
+          </View>
+        ) : null}
+
+        {step === 'review' ? (
+          <View style={styles.stepContent}>
+            <View style={styles.pageHeading}>
+              <Text variant="h1">Review your experiment</Text>
+              <Text variant="body" tone="soft">
+                Make sure this feels realistic enough to check in on every day.
+              </Text>
+            </View>
+
+            <Card style={styles.reviewCard}>
+              <View style={styles.summaryBlock}>
+                <Text variant="caption" tone="soft" weight="bold">
+                  OUTCOME
+                </Text>
+                <Text variant="h2">{outcome}</Text>
+              </View>
+              <View style={styles.summaryBlock}>
+                <Text variant="caption" tone="soft" weight="bold">
+                  ACTIVITIES
+                </Text>
+                <ActivityCloud activities={activities} />
+              </View>
+            </Card>
+
+            <Card tone="info" busy={hypothesisLoading} style={styles.hypothesisCard}>
+              <View style={styles.hypothesisHeader}>
+                <Text variant="h2">Your hypothesis</Text>
+                {!hypothesisLoading && hypothesis ? (
+                  <Text variant="caption" tone={hypothesisFromAI ? 'primary' : 'soft'}>
+                    {hypothesisFromAI ? 'AI generated' : 'Template'}
+                  </Text>
+                ) : null}
+              </View>
+              <Text variant="body" weight="medium">
+                {hypothesis || 'Drafting a testable hypothesis from your setup…'}
+              </Text>
+            </Card>
+
+            {hypothesisError ? <Callout tone="danger">{hypothesisError}</Callout> : null}
+            {saveError ? <Callout tone="danger">{saveError}</Callout> : null}
+
+            {canSave ? (
+              <View style={styles.actions}>
+                <Button variant="quiet" onPress={handleCancelReview}>
+                  Cancel
+                </Button>
+                <Button variant="hero" loading={saving} onPress={() => void handleSave()}>
+                  Save & continue
+                </Button>
+              </View>
+            ) : null}
+          </View>
+        ) : null}
       </View>
     );
-  }
-
-  if (isSetupComplete) {
-    return (
-      <ScrollView contentContainerStyle={styles.container}>
-        {showDinos && (
-          <>
-            <LaserDinosaur key="dino1" />
-            <LaserDinosaur key="dino2" />
-            <LaserDinosaur key="dino3" />
-          </>
-        )}
-        <TouchableOpacity onPress={handleBrandTap} activeOpacity={0.8}>
-          <Text style={styles.brandTitle}>wohl</Text>
-        </TouchableOpacity>
-        <Text style={styles.title}>Your Hypothesis</Text>
-        <View style={styles.section}>
-          <View style={styles.hypothesisBox}>
-            {hypothesisLoading ? (
-              <View style={styles.hypothesisLoading}>
-                <ActivityIndicator size="small" color={Brand.blue} />
-                <Text style={styles.hypothesisLoadingText}>Generating…</Text>
-              </View>
-            ) : (
-              <Text style={styles.hypothesisText}>{hypothesis}</Text>
-            )}
-          </View>
-          {!hypothesisLoading && (
-            <Text style={hypothesisFromAI ? styles.aiLabel : styles.fallbackLabel}>
-              {hypothesisFromAI ? 'AI Generated' : 'Template'}
-            </Text>
-          )}
-        </View>
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Your Activities</Text>
-          <View style={styles.chipContainer}>
-            {activities.map((activity) => (
-              <View key={activity} style={styles.chip}>
-                <Text style={styles.chipText}>{activity}</Text>
-              </View>
-            ))}
-          </View>
-        </View>
-        <TouchableOpacity 
-          style={styles.editButton} 
-          onPress={() => setIsSetupComplete(false)}
-        >
-          <Text style={styles.editButtonText}>Edit Setup</Text>
-        </TouchableOpacity>
-      </ScrollView>
-    );
-  }
+  })();
 
   return (
     <KeyboardAvoidingView
-      style={{ flex: 1 }}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={80}
-    >
-      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-        {showDinos && (
-          <>
-            <LaserDinosaur key="dino1" />
-            <LaserDinosaur key="dino2" />
-            <LaserDinosaur key="dino3" />
-          </>
-        )}
-        <TouchableOpacity onPress={handleBrandTap} activeOpacity={0.8}>
-          <Text style={styles.brandTitle}>wohl</Text>
-        </TouchableOpacity>
-        <Text style={styles.title}>Define Your Goal</Text>
-        <Text style={styles.subtitle}>
-          What do you want to improve? Which activities might influence it?
-        </Text>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Outcome</Text>
-          <TextInput
-            value={outcome}
-            onChangeText={setOutcome}
-            placeholder="I want to…"
-            placeholderTextColor={Brand.inkFaint}
-            style={styles.input}
-          />
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Activities</Text>
-
-          <View style={styles.row}>
-            <TextInput
-              value={newActivity}
-              onChangeText={setNewActivity}
-              placeholder="e.g. morning walk, no caffeine after 2pm"
-              placeholderTextColor={Brand.inkFaint}
-              style={[styles.input, styles.inputFlex]}
-              onSubmitEditing={handleAddActivity}
-              onKeyPress={(e) => {
-                if (e.nativeEvent.key === 'Enter') handleAddActivity();
-              }}
-              returnKeyType="done"
-              blurOnSubmit={false}
-            />
-            <TouchableOpacity style={styles.addButton} onPress={handleAddActivity}>
-              <Text style={styles.addButtonText}>+</Text>
-            </TouchableOpacity>
-          </View>
-
-          {activities.length > 0 && (
-            <View style={styles.chipContainer}>
-              {activities.map((activity) => (
-                <View key={activity} style={styles.chip}>
-                  <Text style={styles.chipText} numberOfLines={1}>
-                    {activity}
-                  </Text>
-                  <TouchableOpacity
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                    onPress={() => handleRemoveActivity(activity)}
-                    style={styles.chipRemove}
-                  >
-                    <Text style={styles.chipRemoveText}>×</Text>
-                  </TouchableOpacity>
-                </View>
-              ))}
-            </View>
-          )}
-        </View>
-
-        {(hypothesis || hypothesisLoading) && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Your Hypothesis</Text>
-            <View style={styles.hypothesisBox}>
-              {hypothesisLoading ? (
-                <View style={styles.hypothesisLoading}>
-                  <ActivityIndicator size="small" color={Brand.blue} />
-                  <Text style={styles.hypothesisLoadingText}>Generating…</Text>
-                </View>
-              ) : (
-                <Text style={styles.hypothesisText}>{hypothesis}</Text>
-              )}
-            </View>
-            {!hypothesisLoading && (
-              <Text style={hypothesisFromAI ? styles.aiLabel : styles.fallbackLabel}>
-                {hypothesisFromAI ? 'AI Generated' : 'Template'}
-              </Text>
-            )}
-          </View>
-        )}
-
-        {hypothesisError && <Text style={styles.errorText}>{hypothesisError}</Text>}
-
-        {/*
-          Save lives here, a sibling of the hypothesis section rather than a
-          child of it. Nested inside, it only existed once a hypothesis had been
-          produced -- so it appeared ~600ms after typing stopped, and if the
-          draft failed the user could never save at all.
-        */}
-        {canSave && (
-          <View style={styles.section}>
-            {saveError && <Text style={styles.errorText}>{saveError}</Text>}
-            <TouchableOpacity
-              style={[styles.saveButton, saving && styles.saveButtonDisabled]}
-              onPress={handleSaveSetup}
-              disabled={saving}
-            >
-              <Text style={styles.saveButtonText}>
-                {saving ? 'Saving…' : 'Save & Continue'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        )}
+      style={styles.screen}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={layout.keyboardVerticalOffset}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled">
+        {content}
       </ScrollView>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flexGrow: 1,
-    paddingHorizontal: 32,
-    paddingVertical: 48,
-    gap: 40,
-    backgroundColor: Brand.white,
-    alignItems: 'center',
-    maxWidth: 600,
-    width: '100%',
-    alignSelf: 'center',
-  },
-  brandTitle: {
-    fontSize: 48,
-    fontWeight: '700',
-    color: Brand.orange,
-    letterSpacing: -1,
-    marginBottom: -8,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: '700',
-    textAlign: 'center',
-    color: Brand.ink,
-    letterSpacing: -0.5,
-  },
-  subtitle: {
-    fontSize: 16,
-    textAlign: 'center',
-    color: Brand.inkSoft,
-    lineHeight: 24,
-    paddingHorizontal: 16,
-  },
-  section: {
-    gap: 16,
-    width: '100%',
-  },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: Brand.ink,
-    textAlign: 'center',
-  },
-  input: {
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: Brand.inputBorder,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 16,
-    backgroundColor: Brand.inputBackground,
-    color: Brand.ink,
-  },
-  inputFlex: {
+  screen: {
     flex: 1,
+    backgroundColor: color.background,
   },
-  row: {
+  scrollContent: {
+    flexGrow: 1,
+    paddingHorizontal: layout.gutter,
+    paddingTop: space.xxl,
+    paddingBottom: space.xxl + layout.tabBarHeight,
+    backgroundColor: color.background,
+  },
+  content: {
+    width: '100%',
+    maxWidth: layout.maxWidth,
+    alignSelf: 'center',
+    gap: layout.sectionGap,
+  },
+  pageHeading: {
+    gap: space.xs,
+  },
+  stepContent: {
+    width: '100%',
+    gap: space.lg,
+  },
+  progress: {
+    alignSelf: 'center',
+    width: '100%',
+    maxWidth: 360,
+    gap: space.xs,
+  },
+  progressBars: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
+    gap: space.xs,
   },
-  addButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: Brand.orange,
-    alignItems: 'center',
+  progressTarget: {
+    flex: 1,
+    minHeight: layout.minTouch,
     justifyContent: 'center',
-    shadowColor: Brand.orange,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 3,
   },
-  addButtonText: {
-    color: Brand.white,
-    fontWeight: '700',
-    fontSize: 24,
+  progressBar: {
+    height: 8,
+    borderRadius: radius.pill,
+    backgroundColor: color.border,
   },
-  chipContainer: {
+  progressBarActive: {
+    backgroundColor: color.primaryStrong,
+  },
+  chipCloud: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
-    justifyContent: 'center',
+    gap: space.xs,
   },
-  chip: {
+  suggestions: {
+    gap: space.xs,
+  },
+  actions: {
     flexDirection: 'row',
-    alignItems: 'center',
-    paddingLeft: 16,
-    paddingRight: 8,
-    paddingVertical: 10,
-    borderRadius: 20,
-    backgroundColor: Brand.chipBackground,
-    borderWidth: 1,
-    borderColor: Brand.chipBorder,
-    gap: 6,
-    maxWidth: '100%',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+    gap: space.sm,
   },
-  chipText: {
-    fontSize: 14,
-    flexShrink: 1,
-    color: Brand.ink,
-    fontWeight: '500',
-  },
-  chipRemove: {
-    padding: 4,
-    marginLeft: 2,
-    borderRadius: 999,
-    minWidth: 24,
+  addButton: {
+    width: layout.minTouch,
+    height: layout.minTouch,
     alignItems: 'center',
     justifyContent: 'center',
+    borderRadius: radius.md,
+    backgroundColor: color.brand,
   },
-  chipRemoveText: {
-    fontSize: 18,
-    lineHeight: 20,
-    color: Brand.inkFaint,
-    fontWeight: '400',
+  pressed: {
+    opacity: 0.78,
   },
-  hypothesisBox: {
-    padding: 24,
-    borderRadius: 16,
-    backgroundColor: Brand.blueTint,
-    borderWidth: 2,
-    borderColor: Brand.blue,
-    shadowColor: Brand.blue,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 2,
+  reviewCard: {
+    gap: space.lg,
   },
-  hypothesisText: {
-    fontSize: 17,
-    lineHeight: 26,
-    color: Brand.ink,
-    fontWeight: '500',
-    textAlign: 'center',
+  summaryCard: {
+    gap: space.lg,
   },
-  hypothesisLoading: {
+  summaryBlock: {
+    gap: space.xs,
+  },
+  hypothesisCard: {
+    gap: space.sm,
+  },
+  hypothesisHeader: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
+    justifyContent: 'space-between',
+    gap: space.xs,
   },
-  hypothesisLoadingText: {
-    fontSize: 16,
-    color: Brand.inkSoft,
+  skeletonCard: {
+    gap: space.md,
   },
-  aiLabel: {
-    fontSize: 12,
-    textAlign: 'center',
-    color: Brand.blue,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  fallbackLabel: {
-    fontSize: 12,
-    textAlign: 'center',
-    color: Brand.inkFaint,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  saveButton: {
-    marginTop: 8,
-    paddingHorizontal: 32,
-    paddingVertical: 16,
-    borderRadius: 12,
-    backgroundColor: Brand.blue,
+  skeletonHeading: {
     alignSelf: 'center',
-    shadowColor: Brand.blue,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
+    width: '54%',
+    height: 34,
+    borderRadius: radius.sm,
+    backgroundColor: color.border,
   },
-  saveButtonDisabled: {
-    opacity: 0.6,
+  skeletonLineWide: {
+    width: '78%',
+    height: 20,
+    borderRadius: radius.sm,
+    backgroundColor: color.border,
   },
-  errorText: {
-    fontSize: 14,
-    textAlign: 'center',
-    color: Brand.danger,
+  skeletonLine: {
+    width: '48%',
+    height: 16,
+    borderRadius: radius.sm,
+    backgroundColor: color.border,
   },
-  saveButtonText: {
-    color: Brand.white,
-    fontWeight: '700',
-    fontSize: 16,
-    letterSpacing: 0.3,
-  },
-  editButton: {
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: Brand.orange,
-    alignSelf: 'center',
-  },
-  editButtonText: {
-    color: Brand.orange,
-    fontWeight: '600',
-    fontSize: 16,
+  skeletonField: {
+    width: '100%',
+    height: 52,
+    borderRadius: radius.md,
+    backgroundColor: color.surfaceMuted,
   },
 });

@@ -150,6 +150,11 @@ export const logOutcomeRating = async (rating: number, date: string) => {
   syntheticRatingDates.delete(date);
 };
 
+export const clearOutcomeRating = async (date: string) => {
+  delete webStorage.ratings[date];
+  syntheticRatingDates.delete(date);
+};
+
 export const getOutcomeRating = async (date: string): Promise<number | null> => {
   return webStorage.ratings[date] || null;
 };

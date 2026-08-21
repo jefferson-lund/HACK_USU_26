@@ -1,254 +1,153 @@
-# HACK_USU_26 - Hypothesis Generation App
+# wohl project context
 
-## Project Overview
+## Product
 
-This is a React Native/Expo mobile application that helps users define and refine working hypotheses about how daily activities affect wellness outcomes. The app uses AI (OpenAI GPT-4o-mini) to generate clear, neutral hypotheses based on user-provided outcomes and activities.
+wohl is a wellness self-experimentation app. A user defines an outcome and
+candidate daily activities, records check-ins, and runs correlation or
+regression analysis to learn what may help.
 
-## Technology Stack
+## Stack
 
-### Frontend
-- **Expo 54.0** with React Native 0.81.5
-- **React 19.1.0** with TypeScript 5.9.2
-- **Expo Router 6.0.23** - File-based routing system
-- **React Navigation 7.1.28** - Navigation library
-- **React Native Reanimated 4.1.1** - Animations
-- **React Native Web 0.21.0** - Web platform support
+- Expo SDK 54 / React Native 0.81.5 / React 19 / TypeScript 5.9
+- Expo Router 6 with typed, file-based routes
+- React Native Web; static Metro export for Cloudflare Pages
+- `react-native-svg` for charts
+- SQLite on native and in-memory storage on web
+- Express for local API development; Cloudflare Pages Functions in production
 
-### Backend
-- **Express 5.0.1** - Node.js server, local dev only (`server/index.js`)
-- **Cloudflare Pages Functions** - Workers-runtime port of the same routes for production (`functions/`), see CLOUDFLARE.md
-- **OpenAI API** - GPT-4o-mini model for hypothesis generation
-- **CORS** - Cross-origin resource sharing
+Web is intentionally light-only. Do not add a dark mode to the redesigned
+screens.
 
-### Platforms
-- iOS (with tablet support)
-- Android (with adaptive icons)
-- Web (Metro bundler, static output)
+## Versioned route architecture
 
-## Project Structure
+The app ships two interfaces:
 
-```
-app/                    # Expo Router app directory (file-based routing)
-├── _layout.tsx        # Root layout with theme provider
-├── (tabs)/            # Tab-based navigation group
-│   ├── _layout.tsx    # Tab layout with bottom tab bar
-│   ├── index.tsx      # Main "Today Setup" screen
-│   └── track.tsx      # "Track" tab — the largest, most feature-dense
-│                      # screen in the app: daily activity/outcome
-│                      # tracking, WHOOP integration, regression-based
-│                      # analytics, and the AI-generated weekly plan
-├── modal.tsx          # Modal screen
-└── +not-found.tsx     # 404 fallback
-
-components/            # Reusable UI components
-├── Themed.tsx         # Theme-aware components
-├── useColorScheme.ts  # Dark/light mode detection
-├── track/             # Subcomponents extracted from track.tsx
-│   ├── WhoopPanel.tsx     # WHOOP token/OAuth controls + data table
-│   ├── ScatterChart.tsx   # Predicted vs. actual outcomes scatter plot
-│   ├── WeeklyPlanCard.tsx # Renders the generated 1-week plan
-│   └── DataTable.tsx      # Recent check-in data sample table
-└── ...
-
-constants/             # App constants
-└── Colors.ts          # Theme color definitions (generic light/dark theme)
-                       # plus the `Brand` palette used by index.tsx/track.tsx
-
-lib/                   # Utility libraries
-├── llm.ts             # LLM integration and API communication
-├── whoop.ts           # WHOOP API integration
-├── analysis.ts        # Regression/correlation analysis for track.tsx
-└── database.native.ts / database.web.ts  # Storage backends (SQLite / in-memory)
-
-server/                # Express backend (local dev only, port 4000)
-└── index.js          # OpenAI/Gemini/WHOOP proxy -- npm run server
-
-functions/             # Cloudflare Pages Functions (production API)
-├── _lib/              # Shared helpers (env, CORS, rate limiting)
-├── api/               # /api/hypothesis, /api/weekly-plan, /api/whoop/token, /api/health
-└── hypothesis.ts      # Root-level backward-compat mount
-                       # Parallel Workers-runtime port of server/index.js's
-                       # routes -- see CLOUDFLARE.md. Kept in sync by hand;
-                       # Express and Workers don't share a runtime.
-
-wrangler.toml          # Cloudflare Pages config (build output dir, rate
-                       # limiting binding)
-
-assets/                # Static assets (images, fonts)
+```text
+app/
+├── (v2)/                 # parenthesized, so it owns / and /track
+│   ├── _layout.tsx
+│   ├── index.tsx
+│   └── track.tsx
+└── legacy/               # real URL segment: /legacy and /legacy/track
+    ├── _layout.tsx
+    ├── index.tsx
+    └── track.tsx
 ```
 
-## Key Features
+Do not parenthesize `legacy`; two sibling route groups would collide at `/`.
+The original interface is frozen in `app/legacy/`. Modern components belong in
+`components/v2/` and reusable controls belong in `components/ui/`.
 
-### Hypothesis Generation System
-1. User enters a desired outcome (e.g., "have more energy")
-2. User adds daily activities they believe influence the outcome
-3. AI generates a clear, neutral hypothesis connecting activities to outcome
-4. Hypothesis displayed in formatted box for review
+`VersionSwitch` must use `router.replace`, never `window.location`. Web storage
+is in memory, so a hard navigation destroys the current setup and check-ins.
+Both versions intentionally share one database module instance.
 
-### UI Features
-- Dark/light theme support with automatic detection
-- Keyboard-aware layout (platform-specific)
-- Loading indicators during API calls
-- Error handling with user-friendly messages
-- Chip-based activity display
-- Input validation
+The pre-hydration preference gate in `app/+html.tsx` must remain restricted to
+the exact `/` path. Explicit versioned URLs always win over the saved preference.
 
-## Architecture Patterns
+## Modern design system
 
-### 1. Expo Router (File-Based Routing)
-- Routes automatically generated from file structure
-- Type-safe routes with `typedRoutes: true`
-- Similar to Next.js routing pattern
+`constants/Colors.ts` owns the original `Brand` palette and must remain stable
+for the legacy interface. `constants/theme.ts` maps that palette to semantic v2
+roles:
 
-### 2. Secure API Architecture
-- Backend proxy pattern prevents client-side API key exposure
-- Server-side OpenAI integration
-- Fallback mechanisms for offline/error scenarios
-- Never expose `OPENAI_API_KEY` to client
+- coral is identity and edit affordance, never a negative signal
+- light blue is for large accessible fills and tints
+- strong blue is for text, icons, selected controls, and positive chart ink
+- red is negative chart ink
+- slate is the diverging midpoint
 
-### 3. Theme System
-- Centralized color definitions in `constants/Colors.ts`
-- Theme-aware components using `useThemeColor` hook
-- Automatic light/dark mode detection
-- Platform-specific color scheme handling
+Use the six type variants from `components/ui/Text` rather than creating ad-hoc
+font sizes. New v2 surfaces should use the primitives in `components/ui/`.
+Do not import `components/Themed.tsx` in modern screens.
 
-### 4. Platform Abstraction
-- Platform-specific files (`.web.ts`, `.native.ts`)
-- `useClientOnlyValue` hook for hydration-safe rendering
-- Conditional rendering based on `Platform.OS`
+## Modern Setup flow
 
-## API Integration
+`app/(v2)/index.tsx` is one mounted screen with three steps:
 
-### Backend Endpoint
-```
-POST http://localhost:4000/hypothesis
-Body: { outcome: string, activities: string[] }
-Response: { hypothesis: string, usedFallback: boolean }
-```
+1. Outcome
+2. Activities
+3. Review and save
 
-### Client-Side Communication (lib/llm.ts)
-- Base URL resolution priority:
-  1. `EXPO_PUBLIC_API_BASE_URL` environment variable
-  2. Web: Current origin + port 4000
-  3. Native: Expo hostUri + port 4000
-  4. Fallback: Local template generation
+Keep the 600 ms hypothesis debounce and generation counter. Save remains a
+sibling of the hypothesis card and depends only on a non-empty outcome plus at
+least one activity. Hypothesis failure must never block saving.
 
-### Error Handling
-- Network errors → fallback hypothesis
-- API errors → fallback hypothesis
-- Missing backend → fallback hypothesis
-- Graceful degradation ensures app always works
+Activity deduplication is whitespace-normalized and case-insensitive. Commas
+split one entry into multiple chips.
 
-## Environment Variables
+## Modern Track flow
 
-### Backend (.env in server/)
-- `OPENAI_API_KEY` - OpenAI API key (required for AI features)
-- `PORT` - Server port (default: 4000)
+`app/(v2)/track.tsx` is dashboard-first:
 
-### Frontend
-- `EXPO_PUBLIC_API_BASE_URL` - Backend URL override (optional)
-- `EXPO_PUBLIC_OPENAI_API_KEY` - Alternative API key location
+1. Header and local date
+2. Always-visible daily check-in
+3. Cheap headline stats loaded on focus
+4. Always-visible analysis entry/results
+5. Weekly plan
+6. Collapsed raw data
+7. Collapsed developer tools
 
-## Development Workflow
+The cheap dashboard pass uses `getFullDataset()`. Regression remains explicit
+on first run because `ml-regression` executes synchronously on the JS thread.
+Yield one frame before calling `getRegressionAnalysis` so busy UI can paint.
 
-### Running the App
+Changing Same-day/Next-day reruns existing results immediately. Preserve prior
+content at reduced opacity while rerunning. After check-in writes, mark existing
+results stale and ask the user to refresh.
+
+Never render `generateInsightSummary()` in v2. Build copy directly from
+`RegressionResult.impacts`, and branch on `method`:
+
+- Pearson is bounded correlation (`r`) and must not claim outcome points.
+- Multiple regression coefficients are outcome-point estimates.
+
+Scatter point dates must come from `RegressionResult.dates`, especially under
+next-day lag.
+
+No `alert()` calls are allowed in v2. Use inline `Callout` state and roll back
+failed optimistic writes.
+
+## Data contracts
+
+Do not change public signatures in `lib/`. Important behavior:
+
+- `getSetup()` returns null unless both an outcome and activities exist.
+- `getFullDataset()` returns date-descending rows.
+- `clearOutcomeRating(date)` removes only that day's rating.
+- `getRegressionAnalysis()` sorts ascending internally; do not remove the sort.
+- Lag only pairs adjacent calendar dates.
+- `dateKey()` produces local `YYYY-MM-DD` keys; never use UTC ISO dates for
+  calendar check-ins.
+- Missing WHOOP values stay missing; do not invent zeroes.
+
+The web and native database implementations must continue to implement the same
+contract.
+
+## API and deployment
+
+Client API base resolution is centralized in `lib/apiBase.ts`. Web defaults to
+same-origin; native uses an Expo host guess unless explicitly configured.
+
+`server/index.js` and `functions/` are parallel implementations that must be
+kept in sync by hand. Cloudflare rate limiting requires
+`[[unsafe.bindings]] type = "ratelimit"` with the pinned Wrangler 3 release.
+
+## Verification
+
+Run after each meaningful change:
+
 ```bash
-npm run android    # Run on Android
-npm run ios        # Run on iOS
-npm run web        # Run on web browser
-npm run server     # Start Express backend (port 4000)
+npm run typecheck
+npm run verify
 ```
 
-### Development Best Practices
-1. Always run backend server when testing AI features
-2. Use TypeScript strict mode for type safety
-3. Test on multiple platforms (iOS, Android, Web)
-4. Follow Expo Router conventions for routing
-5. Use theme-aware components from `components/Themed.tsx`
-6. Handle loading and error states for all async operations
+Manual gates:
 
-## Code Style Guidelines
-
-### Component Structure
-- Use functional components with hooks
-- Keep components focused and single-purpose
-- Extract reusable logic into custom hooks
-- Use TypeScript for all new code
-
-### State Management
-- Local component state using React hooks (useState)
-- No external state management library needed for current scope
-- Lift state when sharing between components
-
-### Styling
-- Use StyleSheet.create for performance
-- Follow flex-based layouts for responsiveness
-- Use theme colors from `constants/Colors.ts`
-- Ensure proper contrast for accessibility
-
-### Error Handling
-- Always provide user-friendly error messages
-- Implement loading states for async operations
-- Validate inputs before API calls
-- Use try-catch blocks for async operations
-
-## Testing Considerations
-
-### Areas to Test
-- Hypothesis generation with various inputs
-- Fallback behavior when backend unavailable
-- Theme switching (light/dark mode)
-- Platform-specific behavior (iOS, Android, Web)
-- Keyboard interactions and layout
-- Error scenarios and edge cases
-
-## Future Enhancement Ideas
-
-- User authentication and data persistence
-- Hypothesis tracking over time
-- Activity suggestions based on outcomes
-- Data visualization of hypothesis results
-- Social sharing features
-- Offline mode with local storage
-
-## Common Tasks
-
-### Adding a New Screen
-1. Create file in `app/` directory (e.g., `app/new-screen.tsx`)
-2. Route automatically available at `/new-screen`
-3. Add navigation link using `<Link href="/new-screen">`
-
-### Adding a New API Endpoint
-1. Add route in `server/index.js`
-2. Update `lib/llm.ts` with client function
-3. Handle errors and fallbacks
-4. Test with and without backend running
-
-### Updating Theme Colors
-1. Edit `constants/Colors.ts`
-2. Colors automatically apply to theme-aware components
-3. Test in both light and dark modes
-
-### Adding Dependencies
-```bash
-npm install <package>           # Add to package.json
-npx expo install <package>      # Expo-compatible version
-```
-
-## Troubleshooting
-
-### Backend Connection Issues
-- Ensure server is running on port 4000
-- Check `EXPO_PUBLIC_API_BASE_URL` if using custom URL
-- Verify CORS configuration for web platform
-- Check network connectivity
-
-### Platform-Specific Issues
-- iOS: Check Info.plist for required permissions
-- Android: Check AndroidManifest.xml for permissions
-- Web: Check for hydration errors, use `useClientOnlyValue`
-
-### Build Issues
-- Clear cache: `npx expo start -c`
-- Reinstall dependencies: `rm -rf node_modules && npm install`
-- Check TypeScript errors: `npx tsc --noEmit`
+- `/`, `/track`, `/legacy`, and `/legacy/track` render
+- the version switch preserves the current tab and in-memory data
+- `app/legacy/` has no redesign diff
+- sample data can produce insights, impact bars, scatter, and tables without
+  opening an analytics accordion
+- changing timing reruns analysis and keeps next-day dates aligned
+- the five-tap wordmark easter egg still creates three dinosaurs for 3500 ms
